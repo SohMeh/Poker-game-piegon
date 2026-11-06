@@ -1,0 +1,67 @@
+# XcodeGen spec for the Flock Poker iMessage app.
+#   cd ios && xcodegen generate        (or: xcodegen generate --spec ios/project.yml)
+# The generated FlockPoker.xcodeproj is not committed; regenerate it after pulling changes.
+# Settings you may want to change (bundle id prefix, server host, team) live in Config/Shared.xcconfig.
+name: FlockPoker
+
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+
+packages:
+  FlockKit:
+    path: FlockKit
+
+fileGroups:
+  - Config
+  - README.md
+
+targets:
+  # The iMessage-only app container (no home-screen app; it only carries the extension).
+  FlockPoker:
+    type: application.messages
+    platform: iOS
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: FlockPoker
+        PRODUCT_BUNDLE_IDENTIFIER: "$(FLOCK_BUNDLE_PREFIX)"
+        INFOPLIST_FILE: Config/FlockPoker-Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+    dependencies:
+      - target: FlockPokerMessages
+        embed: true
+    scheme: {}
+
+  # The Messages extension: native compact home + the live web table in a WKWebView.
+  FlockPokerMessages:
+    type: app-extension.messages
+    platform: iOS
+    sources:
+      - path: FlockPokerMessages
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: FlockPokerMessages
+        PRODUCT_BUNDLE_IDENTIFIER: "$(FLOCK_BUNDLE_PREFIX).messages"
+        INFOPLIST_FILE: Config/FlockPokerMessages-Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "iMessage App Icon"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+    dependencies:
+      - package: FlockKit
+      - sdk: Messages.framework
+      - sdk: WebKit.framework
+    scheme: {}

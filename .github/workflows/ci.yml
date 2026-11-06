@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -32,4 +33,44 @@ jobs:
         with:
           name: e2e-screenshots
           path: e2e/screenshots/e2e-*.png
+          if-no-files-found: ignore
+
+  # The native iMessage app (ios/): FlockKit unit tests + an unsigned simulator build.
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec ios/project.yml
+      - name: FlockKit unit tests
+        run: swift test --package-path ios/FlockKit
+      - name: Build the iMessage app (simulator, unsigned)
+        run: |
+          xcodebuild \
+            -project ios/FlockPoker.xcodeproj \
+            -scheme FlockPoker \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Zip the generated Xcode project
+        if: always()
+        run: |
+          if [ -d ios/FlockPoker.xcodeproj ]; then
+            cd ios && zip -qr FlockPoker.xcodeproj.zip FlockPoker.xcodeproj
+          fi
+      - name: Upload the generated Xcode project
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlockPoker-xcodeproj
+          path: ios/FlockPoker.xcodeproj.zip
           if-no-files-found: ignore

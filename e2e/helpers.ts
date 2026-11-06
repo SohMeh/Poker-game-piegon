@@ -64,6 +64,16 @@ export async function createGame(host: Phone, opts: CreateOptions = {}): Promise
   const { page } = host;
   await page.goto('/');
   await page.getByTestId('home-name').fill(host.name);
+  await fillCreateSettings(page, opts);
+  await page.getByTestId('create-room').click();
+  const code = (await page.getByTestId('invite-code').textContent())?.trim() ?? '';
+  expect(code).toMatch(/^[A-Z0-9]{6}$/);
+  await expect(page).toHaveURL(new RegExp(`/g/${code}$`));
+  return code;
+}
+
+/** Sets the table settings on the home screen's "Start a game" form (name and submit are up to the caller). */
+export async function fillCreateSettings(page: Page, opts: CreateOptions = {}): Promise<void> {
   if (opts.blinds) await page.getByRole('radiogroup', { name: 'Blinds' }).getByRole('radio', { name: opts.blinds, exact: true }).click();
   if (opts.buyIn !== undefined) await page.locator('#create-buyin').fill(String(opts.buyIn));
   if (opts.seats !== undefined) {
@@ -86,11 +96,6 @@ export async function createGame(host: Phone, opts: CreateOptions = {}): Promise
   }
   await setSwitch(page.getByTestId('create-require-approval'), opts.requireApproval);
   await setSwitch(page.getByTestId('create-allow-buyback'), opts.allowBuyBack);
-  await page.getByTestId('create-room').click();
-  const code = (await page.getByTestId('invite-code').textContent())?.trim() ?? '';
-  expect(code).toMatch(/^[A-Z0-9]{6}$/);
-  await expect(page).toHaveURL(new RegExp(`/g/${code}$`));
-  return code;
 }
 
 async function setSwitch(sw: Locator, want: boolean | undefined): Promise<void> {

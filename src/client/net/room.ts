@@ -2,7 +2,9 @@
 import { KICKED_ERROR, SESSION_EXPIRED_ERROR } from '../../shared/constants';
 import type { GameSettings, RoomView } from '../../shared/types';
 import { SkewTracker } from '../lib/clock';
-import { parsePath, roomPath, type Route } from '../lib/route';
+import { parsePath, roomPath, withEmbedFlag, type Route } from '../lib/route';
+import { isEmbedded } from '../native/bridge';
+import { afterCreate, rememberName } from '../native/embed';
 import { appendLog, pushChat, resetRoomState, setHistory, setUI, toast, useStore } from '../state/store';
 import { fetchRoomSummary } from './api';
 import { clearSession, kickedToken, loadSession, markKicked, saveName, saveSession, wasKicked } from './session';
@@ -61,9 +63,11 @@ export function currentRoute(): Route {
 }
 
 export function navigate(path: string, opts: { replace?: boolean } = {}): void {
+  // inside the iMessage extension every page keeps ?embed=imessage, so a reload stays embedded
+  const target = isEmbedded() ? withEmbedFlag(path) : path;
   try {
-    if (opts.replace) window.history.replaceState(null, '', path);
-    else window.history.pushState(null, '', path);
+    if (opts.replace) window.history.replaceState(null, '', target);
+    else window.history.pushState(null, '', target);
   } catch {
     /* ignore (sandboxed iframes) */
   }
@@ -187,6 +191,7 @@ export async function joinWithName(roomId: string, name: string): Promise<boolea
   if (!attachIfOnScreen(roomId)) return false;
   saveSession(roomId, res.data);
   saveName(name);
+  rememberName(name);
   set({ phase: get().room ? 'joined' : 'loading' });
   return true;
 }
@@ -201,8 +206,11 @@ export async function createRoom(name: string, settings: Partial<GameSettings>):
   attachedRoomId = res.data.roomId;
   saveSession(res.data.roomId, { token: res.data.token, playerId: res.data.playerId });
   saveName(name);
+  rememberName(name);
   navigate(roomPath(res.data.roomId));
-  setUI({ inviteOpen: true });
+  // in Messages the invite bubble goes straight to the compose field instead of the invite sheet
+  if (isEmbedded()) void afterCreate(res.data.roomId);
+  else setUI({ inviteOpen: true });
   return true;
 }
 

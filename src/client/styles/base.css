@@ -45,6 +45,10 @@
 
   color-scheme: light;
 }
+/* Inside the expanded iMessage extension the page starts right under Messages' grabber / header. */
+:root[data-embed='imessage'] {
+  --safe-t: calc(env(safe-area-inset-top, 0px) + 8px);
+}
 
 /* ------------------------------------------------------------------ reset */
 *,

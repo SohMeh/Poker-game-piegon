@@ -6,11 +6,14 @@ import { Field } from '../components/controls';
 import { SettingsForm } from '../components/SettingsForm';
 import { extractRoomCode, isValidRoomCode, roomPath } from '../lib/route';
 import { defaultBuyIn, hasErrors, validateName, validateSettings } from '../lib/settingsForm';
+import { isEmbedded } from '../native/bridge';
+import { preferredName } from '../native/embed';
 import { createRoom, navigate } from '../net/room';
-import { loadName } from '../net/session';
 
 export function Home() {
-  const [name, setName] = useState(() => loadName());
+  // Inside the iMessage extension the player came here to start a game: the form comes first.
+  const embedded = isEmbedded();
+  const [name, setName] = useState(() => preferredName());
   const [settings, setSettings] = useState<GameSettings>(() => ({
     ...DEFAULT_SETTINGS,
     buyIn: defaultBuyIn(DEFAULT_SETTINGS.bigBlind),
@@ -44,23 +47,25 @@ export function Home() {
   };
 
   return (
-    <div className="home">
-      <header className="home-hero">
-        <BirdMascot size={112} className="home-mascot" />
-        <Wordmark />
-        <p className="tagline">No-Limit Hold’em for the group chat</p>
-        <ul className="house-rules" aria-label="House rules">
-          <li>
-            <span aria-hidden>🪙</span> One buy-in each
-          </li>
-          <li>
-            <span aria-hidden>🤝</span> Buy back only if everyone agrees
-          </li>
-          <li>
-            <span aria-hidden>📱</span> Made for phones
-          </li>
-        </ul>
-      </header>
+    <div className={embedded ? 'home is-embedded' : 'home'} data-testid="home">
+      {embedded ? null : (
+        <header className="home-hero">
+          <BirdMascot size={112} className="home-mascot" />
+          <Wordmark />
+          <p className="tagline">No-Limit Hold’em for the group chat</p>
+          <ul className="house-rules" aria-label="House rules">
+            <li>
+              <span aria-hidden>🪙</span> One buy-in each
+            </li>
+            <li>
+              <span aria-hidden>🤝</span> Buy back only if everyone agrees
+            </li>
+            <li>
+              <span aria-hidden>📱</span> Made for phones
+            </li>
+          </ul>
+        </header>
+      )}
 
       <form className="card-panel home-card" onSubmit={onCreate} noValidate>
         <h2 className="home-card-title">Start a game</h2>
@@ -116,7 +121,11 @@ export function Home() {
           </span>
         ) : null}
       </form>
-      <p className="home-foot">Play money only · no sign-up · share the link to invite</p>
+      {embedded ? (
+        <p className="home-foot">Play money only · the game is sent to this chat</p>
+      ) : (
+        <p className="home-foot">Play money only · no sign-up · share the link to invite</p>
+      )}
     </div>
   );
 }
