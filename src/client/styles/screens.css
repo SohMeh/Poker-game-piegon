@@ -1,0 +1,265 @@
+/* ------------------------------------------------------------------ shared bits */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  white-space: nowrap;
+}
+.pill-yellow {
+  background: #fff1c2;
+  color: #7a4b00;
+}
+.pill-green {
+  background: #d3f8e3;
+  color: #0c6b37;
+}
+.pill-soft {
+  background: var(--paper-2);
+  color: var(--ink-soft);
+}
+
+.wordmark {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 900;
+  font-size: clamp(38px, 11vw, 52px);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow:
+    0 4px 0 rgba(40, 10, 110, 0.35),
+    0 10px 24px rgba(40, 10, 110, 0.35);
+}
+.wordmark-poker {
+  color: var(--yellow);
+  transform: rotate(-3deg);
+  display: inline-block;
+}
+
+/* ------------------------------------------------------------------ home */
+.home {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: calc(var(--safe-t) + 18px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 28px) calc(var(--safe-l) + 16px);
+  background:
+    radial-gradient(rgba(255, 255, 255, 0.09) 2px, transparent 2.5px) 0 0 / 26px 26px,
+    linear-gradient(165deg, #5b3cf5 0%, #8a3ffc 45%, #ff5fa2 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  overflow-x: hidden;
+}
+.home > * {
+  width: min(100%, 520px);
+}
+.home-hero {
+  text-align: center;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.home-mascot {
+  animation: bob 2.6s ease-in-out infinite;
+  filter: drop-shadow(0 8px 0 rgba(40, 10, 110, 0.25));
+  margin-bottom: 4px;
+}
+.tagline {
+  margin: 10px 0 12px;
+  font-weight: 800;
+  font-size: 17px;
+}
+.house-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.house-rules li {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-weight: 800;
+  font-size: 13px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.home-card,
+.join-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.home-card-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 900;
+}
+.home-foot {
+  margin: 0;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 700;
+  font-size: 13px;
+}
+.join-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.join-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 20px;
+  text-align: center;
+}
+
+/* settings form */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.settings-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.blind-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.mini-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+.blind-slash {
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--ink-soft);
+  padding-bottom: 8px;
+}
+.buyin-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.buyin-row .text-input {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.buyin-quick {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.buyin-quick .chip {
+  padding: 0 10px;
+}
+.toggles {
+  display: flex;
+  flex-direction: column;
+  border-top: 2px solid var(--line);
+  padding-top: 4px;
+}
+
+/* ------------------------------------------------------------------ gate screens */
+.gate {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-t) + 20px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 20px) calc(var(--safe-l) + 16px);
+  background:
+    radial-gradient(rgba(255, 255, 255, 0.09) 2px, transparent 2.5px) 0 0 / 26px 26px,
+    linear-gradient(165deg, #5b3cf5 0%, #8a3ffc 45%, #ff5fa2 100%);
+}
+.gate-card {
+  width: min(100%, 440px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  text-align: center;
+  padding-top: 0;
+  margin-top: 48px;
+}
+.gate-mascot {
+  align-self: center;
+  margin-top: -50px;
+  filter: drop-shadow(0 6px 0 rgba(40, 10, 110, 0.2));
+}
+.gate-mascot.is-sad {
+  transform: rotate(-10deg);
+}
+.gate-mascot.is-bouncing {
+  animation: bob 1s ease-in-out infinite;
+}
+.gate-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 900;
+}
+.gate-summary {
+  margin: 0;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+.gate-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.gate-card .field {
+  text-align: left;
+}
+.gate-note {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.gate-link {
+  color: var(--purple-d);
+  font-weight: 900;
+  font-size: 15px;
+  min-height: var(--tap);
+  display: grid;
+  place-items: center;
+}
+.gate-card a.btn {
+  text-decoration: none;
+}
+.gate-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #fff;
+  font-weight: 900;
+  font-size: 18px;
+}

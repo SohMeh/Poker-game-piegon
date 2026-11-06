@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+e2e/screenshots/*.png
+!e2e/screenshots/.gitkeep
+*.log
+.DS_Store
+.env
+.vite/
