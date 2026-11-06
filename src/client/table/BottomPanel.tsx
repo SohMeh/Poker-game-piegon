@@ -9,9 +9,11 @@ import {
   eligibleCount,
   firstFreeSeat,
   isGameOver,
+  isStalled,
   myPendingRequest,
   myPlayer,
   playerById,
+  seatNeedsApproval,
   type BottomMode,
 } from '../lib/gameState';
 import { useServerNow } from '../lib/hooks';
@@ -82,6 +84,29 @@ function BuyBackButton({ room, compact }: { room: RoomView; compact?: boolean })
   );
 }
 
+/** Host only, when no hand can be dealt: start over (two taps, it resets every stack). */
+function StartOverButton() {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, run] = useBusy();
+  if (!confirm) {
+    return (
+      <button type="button" className="btn btn-white btn-sm" data-testid="start-over" onClick={() => setConfirm(true)}>
+        New game
+      </button>
+    );
+  }
+  return (
+    <>
+      <button type="button" className="btn btn-white btn-sm" onClick={() => setConfirm(false)}>
+        Keep playing
+      </button>
+      <button type="button" className="btn btn-purple btn-sm" data-testid="rematch" disabled={busy} onClick={() => run(actions.rematch())}>
+        Reset all stacks
+      </button>
+    </>
+  );
+}
+
 export function BottomPanel({ room }: { room: RoomView }) {
   const mode: BottomMode = bottomMode(room);
   const me = myPlayer(room);
@@ -97,7 +122,7 @@ export function BottomPanel({ room }: { room: RoomView }) {
     case 'spectator': {
       const free = firstFreeSeat(room);
       return free !== null ? (
-        <Panel title="You’re watching" sub={room.settings.requireApproval && !isHost ? 'The host approves new players' : 'Grab a seat to play'}>
+        <Panel title="You’re watching" sub={seatNeedsApproval(room) ? 'The host approves new players' : 'Grab a seat to play'}>
           <button
             type="button"
             className="btn btn-green"
@@ -210,6 +235,13 @@ export function BottomPanel({ room }: { room: RoomView }) {
     case 'folded':
     case 'allIn':
     case 'waiting': {
+      if (mode === 'waiting' && isStalled(room)) {
+        return (
+          <Panel title={<span data-testid="waiting-for-players">Waiting for players</span>} sub="A hand starts once 2 players with chips are in">
+            {isHost ? <StartOverButton /> : <InviteButton />}
+          </Panel>
+        );
+      }
       const title =
         mode === 'folded'
           ? 'You folded'

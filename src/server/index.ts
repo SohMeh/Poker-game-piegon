@@ -6,7 +6,12 @@ const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST || undefined;
 
 // Optional public origin for link previews, e.g. PUBLIC_URL=https://poker.example.com
-const server = createAppServer({ publicUrl: process.env.PUBLIC_URL || null });
+// TRUST_PROXY_HOPS: reverse proxies in front of this server (1 on Render) for per-client rate limits.
+const hops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+const server = createAppServer({
+  publicUrl: process.env.PUBLIC_URL || null,
+  trustProxyHops: Number.isInteger(hops) && hops > 0 ? hops : 0,
+});
 
 try {
   const actual = await server.listen(Number.isFinite(port) ? port : 3001, host);

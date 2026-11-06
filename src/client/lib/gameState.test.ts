@@ -9,11 +9,13 @@ import {
   eligibleCount,
   firstFreeSeat,
   isGameOver,
+  isStalled,
   myPendingRequest,
   myPlayer,
   nameResolver,
   pendingRequests,
   reservedSeats,
+  seatNeedsApproval,
   seatsTaken,
 } from './gameState';
 
@@ -97,5 +99,65 @@ describe('buy-back availability', () => {
     const off = { ...r, settings: { ...r.settings, allowBuyBack: false } };
     const b = buyBackAvailability(off, NOW);
     expect(b.allowed === false && b.reason).toMatch(/off/);
+  });
+});
+
+describe('stalled vs game over', () => {
+  /** A running game between hands where only `withChips` (by name) hold chips; the rest are busted. */
+  function between(withChips: string[], standing: string[] = []): RoomView {
+    const r = structuredClone(room('preflop-my-turn'));
+    r.hand = null;
+    r.gameOverWinnerId = null;
+    r.status = 'running';
+    r.started = true;
+    r.me.legal = null;
+    for (const p of r.players) {
+      p.stack = withChips.includes(p.name) ? 1000 : 0;
+      p.inHand = false;
+      if (standing.includes(p.name)) {
+        r.seats[p.seat!] = null;
+        p.seat = null;
+      }
+    }
+    r.ledger = r.players.map((p) => ({ playerId: p.id, name: p.name, buyIns: 1, totalBuyIn: 1000, stack: p.stack, net: p.stack - 1000, inRoom: true }));
+    return r;
+  }
+
+  it('someone who stood up with chips keeps the game alive: waiting for players, not game over', () => {
+    const r = between(['Sohum', 'Bob'], ['Bob']); // Sohum is "me"
+    expect(isGameOver(r)).toBe(false);
+    expect(isStalled(r)).toBe(true);
+    expect(bottomMode(r)).toBe('waiting');
+  });
+
+  it('nobody in the room holds chips: game over even without a winner', () => {
+    const r = between([]);
+    expect(isGameOver(r)).toBe(true);
+    expect(isStalled(r)).toBe(false);
+  });
+
+  it('two players with chips seated: neither stalled nor over (the next hand is coming)', () => {
+    const r = between(['Sohum', 'Bob']);
+    expect(isStalled(r)).toBe(false);
+    expect(isGameOver(r)).toBe(false);
+  });
+});
+
+describe('seat approval hint', () => {
+  it('newcomers need the host once the game has started; returning players and the host do not', () => {
+    const r = structuredClone(room('spectator-open'));
+    const me = r.players.find((p) => p.id === r.me.playerId)!;
+    r.settings.requireApproval = false;
+    r.started = false;
+    expect(seatNeedsApproval(r)).toBe(false);
+    r.started = true;
+    me.buyIns = 0;
+    expect(seatNeedsApproval(r)).toBe(true);
+    me.buyIns = 1; // stood up earlier: sits back down with the same chips
+    expect(seatNeedsApproval(r)).toBe(false);
+    r.settings.requireApproval = true;
+    expect(seatNeedsApproval(r)).toBe(true);
+    r.me.isHost = true;
+    expect(seatNeedsApproval(r)).toBe(false);
   });
 });

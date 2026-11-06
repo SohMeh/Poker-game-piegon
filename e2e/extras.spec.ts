@@ -97,9 +97,16 @@ test('host tools: kick a spectator, pause and resume; leaving and coming back ke
   await expect(zed.page.getByTestId('kicked')).toBeVisible();
   await expect(zed.page.getByTestId('kicked')).toContainText('The host removed you from the table');
   await shot(zed, 'kicked');
-  // the kicked token is gone: opening the link again asks for a name
+  // the phone stays removed: opening the link again does not offer a fresh join as a "new" player
   await zed.page.goto(`/g/${code}`);
-  await expect(zed.page.getByTestId('join-name')).toBeVisible();
+  await expect(zed.page.getByTestId('kicked')).toBeVisible();
+  await expect(zed.page.getByTestId('join-name')).toHaveCount(0);
+  // ...not even with the stored session wiped (only the kicked marker is left)
+  await zed.page.evaluate(() => {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('flock:session:')) localStorage.removeItem(k);
+  });
+  await zed.page.reload();
+  await expect(zed.page.getByTestId('kicked')).toBeVisible();
   await closeSheet(host);
 
   // pause between hands, then resume

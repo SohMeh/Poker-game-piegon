@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { LIMITS } from '../../shared/constants';
 import { formatChips, formatSigned } from '../../shared/format';
-import type { GameSettings, LogEntry, PublicPlayer, RoomView } from '../../shared/types';
+import type { GameSettings, PublicPlayer, RoomView } from '../../shared/types';
 import { Avatar } from '../components/Avatar';
 import { Field, Toggle } from '../components/controls';
 import { IconChat, IconCoins, IconCrown, IconGear, IconList, IconSend, IconUsers } from '../components/Icons';
 import { SettingsForm } from '../components/SettingsForm';
 import { Sheet } from '../components/Sheet';
 import { pendingRequests, reservedSeats, seatedPlayers, spectators } from '../lib/gameState';
+import { groupLog } from '../lib/logGroups';
 import { hasErrors, minSeatsAllowed, settingsDiff, validateName, validateSettings } from '../lib/settingsForm';
 import { actions } from '../net/actions';
 import { leaveRoom } from '../net/room';
@@ -198,20 +199,7 @@ function PlayersTab({ room }: { room: RoomView }) {
 // ------------------------------------------------------------------ Log
 function LogTab() {
   const log = useStore((s) => s.log);
-  const groups = useMemo(() => {
-    const map = new Map<string, { title: string; entries: LogEntry[]; order: number }>();
-    for (const e of log) {
-      const key = e.handNumber == null ? 'general' : `h${e.handNumber}`;
-      let g = map.get(key);
-      if (!g) {
-        g = { title: e.handNumber == null ? 'Table' : `Hand #${e.handNumber}`, entries: [], order: e.id };
-        map.set(key, g);
-      }
-      g.entries.push(e);
-      g.order = Math.max(g.order, e.id);
-    }
-    return [...map.values()].sort((a, b) => b.order - a.order);
-  }, [log]);
+  const groups = useMemo(() => groupLog(log), [log]);
   if (!log.length) {
     return (
       <div className="sheet-body">
@@ -222,7 +210,7 @@ function LogTab() {
   return (
     <div className="sheet-body log">
       {groups.map((g) => (
-        <section key={g.title} className="log-group">
+        <section key={g.key} className="log-group">
           <h3 className="menu-h">{g.title}</h3>
           <ol className="log-list">
             {g.entries.map((e) => (

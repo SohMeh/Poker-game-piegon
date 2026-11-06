@@ -127,9 +127,11 @@ export function SettingsForm({ value, onChange, errors, lockedBuyIn, minSeats = 
         hint={
           lockedBuyIn
             ? 'Locked — the game has started'
-            : Number.isFinite(bbs)
-              ? `${Number.isInteger(bbs) ? bbs : bbs.toFixed(1)} big blinds · everyone gets exactly one`
-              : 'Everyone gets exactly one buy-in'
+            : idPrefix === 'edit'
+              ? 'Changing it before the first hand gives everyone already seated the new amount'
+              : Number.isFinite(bbs)
+                ? `${Number.isInteger(bbs) ? bbs : bbs.toFixed(1)} big blinds · everyone gets exactly one`
+                : 'Everyone gets exactly one buy-in'
         }
       >
         <div className="buyin-row">

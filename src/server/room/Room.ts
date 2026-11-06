@@ -6,6 +6,7 @@ import {
   cardLabel,
   DEFAULT_SETTINGS,
   formatChips,
+  KICKED_ERROR,
   LIMITS,
   SESSION_EXPIRED_ERROR,
   TIMING,
@@ -29,7 +30,7 @@ import {
 } from '../../shared';
 import { createHand, nextButtonSeat, type EngineEvent, type EnginePlayerState, type HandEngine } from '../engine';
 import { newPlayerId, newShortId, newToken } from './ids';
-import { checkSettings, normalizeName, NAME_ERROR } from './validation';
+import { checkSettings, isValidName, nameSkeleton, normalizeName, NAME_ERROR } from './validation';
 
 /** A rule violation with a message that can be shown to the user as-is. */
 export class RoomError extends Error {
@@ -149,7 +150,13 @@ export class Room {
   private hostId = '';
   private readonly players = new Map<string, PlayerRec>();
   private readonly tokens = new Map<string, string>();
+  /** Tokens of players the host removed (token -> player id): they can never join again. */
+  private readonly kickedTokens = new Map<string, string>();
   private joinSeq = 0;
+  /** True once any hand was dealt in this room (survives a rematch). */
+  private everDealt = false;
+  /** 1 for the first game, +1 per rematch (tags log entries: hand numbers restart). */
+  private gameNo = 1;
 
   private hand: HandState | null = null;
   private handNumber = 0;
@@ -208,6 +215,8 @@ export class Room {
    */
   join(input: { token?: string; name?: string }): { playerId: string; token: string; reconnected: boolean } {
     return this.mutate(() => {
+      // a removed device stays removed, even if it also sends a name to come back as someone new
+      if (input.token && this.kickedTokens.has(input.token)) throw new RoomError(KICKED_ERROR);
       const known = input.token ? this.tokens.get(input.token) : undefined;
       const existing = known ? this.players.get(known) : undefined;
       if (existing && !existing.kicked && existing.token) {
@@ -216,7 +225,7 @@ export class Room {
           existing.inRoom = true;
           existing.color = this.pickColor(existing.id, existing.color);
           this.addLog('info', `${existing.name} came back`);
-          this.systemChat(`${existing.name} came back`);
+          if (existing.hasSat) this.systemChat(`${existing.name} came back`);
         }
         this.ensureHostPresent(existing);
         return { playerId: existing.id, token: existing.token, reconnected: true };
@@ -227,8 +236,9 @@ export class Room {
       if (this.memberCount() >= MAX_ROOM_MEMBERS) throw new RoomError('This room is full');
       this.pruneGhosts();
       const p = this.createPlayer(input.name);
+      // Spectators show up in the players list; only the log records them, so a stream of
+      // drive-by joins cannot push the table chat out of its history.
       this.addLog('info', `${p.name} joined`);
-      this.systemChat(`${p.name} joined`);
       this.ensureHostPresent(p);
       return { playerId: p.id, token: p.token!, reconnected: false };
     });
@@ -263,6 +273,16 @@ export class Room {
     return this.totalSockets;
   }
 
+  /** Nothing ever happened here: no hand was dealt and nobody but the creator joined. */
+  isAbandoned(): boolean {
+    return !this.everDealt && this.joinSeq <= 1;
+  }
+
+  /** True once any hand has been dealt (a rematch does not reset it). */
+  hasDealt(): boolean {
+    return this.everDealt;
+  }
+
   /** Leave the room entirely. The record and token are kept so the player can return. */
   leave(playerId: string): void {
     this.mutate(() => {
@@ -270,7 +290,7 @@ export class Room {
       this.vacate(p);
       p.inRoom = false;
       this.addLog('info', `${p.name} left the room`);
-      this.systemChat(`${p.name} left`);
+      if (p.hasSat) this.systemChat(`${p.name} left`);
       if (this.hostId === p.id) this.passHost(p);
     });
   }
@@ -279,7 +299,7 @@ export class Room {
     this.mutate(() => {
       const p = this.member(playerId);
       const base = normalizeName(rawName);
-      if (!base || base.length > LIMITS.nameMaxLength) throw new RoomError(NAME_ERROR);
+      if (!isValidName(base)) throw new RoomError(NAME_ERROR);
       if (base === p.name) return;
       const name = this.uniqueName(base, p.id);
       const old = p.name;
@@ -300,7 +320,10 @@ export class Room {
       }
       if (this.freeSeats().length === 0) throw new RoomError('Table is full — you can watch until a seat opens');
       if (this.seatOccupant(seat) || this.seatReservedBy(seat)) throw new RoomError('That seat is taken');
-      if (this.settings.requireApproval && p.id !== this.hostId) {
+      // Once the game is under way, a newcomer's first seat (which comes with a fresh buy-in) needs
+      // the host's OK: a busted player must not slip back in under a new name without a vote.
+      const newcomer = this.started && !p.hasSat;
+      if ((this.settings.requireApproval || newcomer) && p.id !== this.hostId) {
         p.pendingSeat = seat;
         this.addLog('info', `${p.name} asked to sit down`);
         this.notify(this.hostId, 'info', `${p.name} wants to sit down`);
@@ -493,7 +516,8 @@ export class Room {
       if (err) throw new RoomError(err);
       const prev = this.settings;
       this.settings = next;
-      this.logSettingsChange(prev, next);
+      const rebased = !this.started && prev.buyIn !== next.buyIn ? this.rebaseBuyIns(prev.buyIn, next.buyIn) : 0;
+      this.logSettingsChange(prev, next, rebased);
       if (prev.allowBuyBack && !next.allowBuyBack) {
         for (const v of this.votes) if (v.status === 'pending') this.resolveVote(v, 'rejected', 'cancelled');
       }
@@ -537,7 +561,10 @@ export class Room {
       this.vacate(t);
       t.inRoom = false;
       t.kicked = true;
-      if (t.token) this.tokens.delete(t.token);
+      if (t.token) {
+        this.tokens.delete(t.token);
+        this.kickedTokens.set(t.token, t.id);
+      }
       t.token = null;
       this.addLog('info', `Host removed ${t.name} from the room`);
       this.systemChat(`${t.name} was removed by the host`);
@@ -586,6 +613,7 @@ export class Room {
       this.buttonSeat = null;
       this.status = 'lobby';
       this.started = false;
+      this.gameNo++;
       const msg = `New game! Everyone at the table starts again with ${formatChips(buyIn)}`;
       this.addLog('info', msg);
       this.systemChat(msg);
@@ -821,7 +849,7 @@ export class Room {
 
   private createPlayer(rawName: string): PlayerRec {
     const base = normalizeName(rawName);
-    if (!base || base.length > LIMITS.nameMaxLength) throw new RoomError(NAME_ERROR);
+    if (!isValidName(base)) throw new RoomError(NAME_ERROR);
     const id = newPlayerId();
     const token = newToken();
     const p: PlayerRec = {
@@ -851,12 +879,12 @@ export class Room {
 
   private uniqueName(base: string, selfId: string | null): string {
     const taken = new Set<string>();
-    for (const p of this.players.values()) if (p.id !== selfId) taken.add(p.name.toLowerCase());
-    if (!taken.has(base.toLowerCase())) return base;
+    for (const p of this.players.values()) if (p.id !== selfId) taken.add(nameSkeleton(p.name));
+    if (!taken.has(nameSkeleton(base))) return base;
     for (let n = 2; ; n++) {
       const suffix = ` ${n}`;
       const candidate = base.slice(0, LIMITS.nameMaxLength - suffix.length).trimEnd() + suffix;
-      if (!taken.has(candidate.toLowerCase())) return candidate;
+      if (!taken.has(nameSkeleton(candidate))) return candidate;
     }
   }
 
@@ -1038,6 +1066,23 @@ export class Room {
     else this.addLog('info', `${p.name} sat back down with no chips`);
   }
 
+  /**
+   * Before the first hand (since creation or the last rematch) the buy-in can still change. Everyone
+   * who already took the old buy-in moves to the new one, so the table starts with equal stacks and
+   * one buy-in each. Safe: no hand has been dealt, so each of them still holds exactly the old
+   * buy-in, and nobody can have bought back in (that needs an empty stack). Returns how many moved.
+   */
+  private rebaseBuyIns(prevBuyIn: number, nextBuyIn: number): number {
+    let n = 0;
+    for (const p of this.players.values()) {
+      if (!p.hasSat || p.buyIns !== 1 || p.totalBuyIn !== prevBuyIn || p.stack !== prevBuyIn) continue;
+      p.stack = nextBuyIn;
+      p.totalBuyIn = nextBuyIn;
+      n++;
+    }
+    return n;
+  }
+
   /** Removes a player from their seat (folding a live hand) and from buy-back votes. */
   private vacate(p: PlayerRec): void {
     p.pendingSeat = null;
@@ -1104,11 +1149,16 @@ export class Room {
       .sort((a, b) => a.seat! - b.seat!);
   }
 
+  /**
+   * The winner once exactly one player owns every chip still in play. Everyone who holds chips
+   * counts, seated or not: standing up or leaving keeps your stack (you can sit back down), so
+   * that does not end the game. Chips of a kicked player are frozen and do not count.
+   */
   private gameOverWinnerId(): string | null {
     if (!this.started || this.hand) return null;
-    const withChips = [...this.players.values()].filter((p) => p.seat !== null && p.stack > 0);
-    if (withChips.length >= 2) return null;
-    return withChips[0]?.id ?? null;
+    const holders = [...this.players.values()].filter((p) => p.hasSat && !p.kicked && p.stack > 0);
+    if (holders.length !== 1) return null;
+    return holders[0]!.seat !== null ? holders[0]!.id : null;
   }
 
   private canShow(playerId: string): boolean {
@@ -1224,6 +1274,7 @@ export class Room {
     this.handNumber = handNumber;
     this.buttonSeat = dealerSeat;
     this.started = true;
+    this.everDealt = true;
     this.hand = {
       engine,
       dealt: new Set(eligible.map((p) => p.id)),
@@ -1359,7 +1410,7 @@ export class Room {
   // =================================================================== internals: log / chat / notices
 
   private addLog(kind: LogKind, text: string, handNumber: number | null = null): void {
-    const entry: LogEntry = { id: ++this.logSeq, handNumber, ts: this.now(), kind, text };
+    const entry: LogEntry = { id: ++this.logSeq, handNumber, ts: this.now(), kind, text, game: this.gameNo };
     this.log.push(entry);
     if (this.log.length > LOG_KEEP) this.log.splice(0, this.log.length - LOG_KEEP);
     this.outbox.log.push(entry);
@@ -1436,13 +1487,21 @@ export class Room {
     }
   }
 
-  private logSettingsChange(prev: GameSettings, next: GameSettings): void {
+  private logSettingsChange(prev: GameSettings, next: GameSettings, rebased = 0): void {
     const live = !!this.hand && !this.hand.resultApplied;
     if (prev.smallBlind !== next.smallBlind || prev.bigBlind !== next.bigBlind) {
       const b = `${formatChips(next.smallBlind)}/${formatChips(next.bigBlind)}`;
       this.addLog('info', live ? `Blinds will be ${b} from the next hand` : `Blinds are now ${b}`);
     }
-    if (prev.buyIn !== next.buyIn) this.addLog('info', `Buy-in is now ${formatChips(next.buyIn)}`);
+    if (prev.buyIn !== next.buyIn) {
+      if (rebased > 0) {
+        const msg = `Buy-in is now ${formatChips(next.buyIn)} — everyone at the table now has ${formatChips(next.buyIn)}`;
+        this.addLog('info', msg);
+        this.systemChat(msg);
+      } else {
+        this.addLog('info', `Buy-in is now ${formatChips(next.buyIn)}`);
+      }
+    }
     if (prev.maxPlayers !== next.maxPlayers) this.addLog('info', `The table now has ${next.maxPlayers} seats`);
     if (prev.turnTimeSec !== next.turnTimeSec) {
       this.addLog('info', next.turnTimeSec > 0 ? `Shot clock set to ${next.turnTimeSec}s` : 'Shot clock turned off');

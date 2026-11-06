@@ -4,12 +4,41 @@ import { formatChips, LIMITS, type GameSettings } from '../../shared';
 
 // ------------------------------------------------------------------ helpers
 
-/** Trim, drop control / zero-width characters, collapse runs of whitespace. */
+/** Invisible / zero-width code points (soft hyphen, Hangul fillers, ZW joiners, bidi controls, tags…). */
+const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+/** Ignorables that are part of normal emoji spelling (text / emoji presentation selectors). */
+const KEEP_IGNORABLE = new Set(['\ufe0e', '\ufe0f']);
+/** Characters that are not "ignorable" but still render as blank space. */
+const BLANK_RE = /[\u2800\u3164\uffa0\u115f\u1160]/g;
+/** At most this many combining marks per base character (no "Zalgo" names). */
+const MAX_MARKS = 3;
+const MARK_RUN_RE = new RegExp(`(\\p{M}{${MAX_MARKS}})\\p{M}+`, 'gu');
+/** A name must contain something you can see. */
+const VISIBLE_RE = /[\p{L}\p{N}\p{S}\p{P}]/u;
+
+/**
+ * NFKC-normalize, drop control / invisible characters, cap combining marks, collapse runs of
+ * whitespace and trim. The result renders the way it reads (no blank or look-alike names).
+ */
 export function normalizeName(raw: string): string {
   return raw
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, ' ')
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(IGNORABLE_RE, (c) => (KEEP_IGNORABLE.has(c) ? c : ''))
+    .replace(BLANK_RE, ' ')
+    .replace(MARK_RUN_RE, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** A normalized name is usable: 1–16 characters with at least one visible character. */
+export function isValidName(normalized: string): boolean {
+  return normalized.length >= 1 && normalized.length <= LIMITS.nameMaxLength && VISIBLE_RE.test(normalized);
+}
+
+/** Comparison key for "is this name taken": ignores case, invisible characters and look-alike forms. */
+export function nameSkeleton(name: string): string {
+  return name.normalize('NFKC').replace(IGNORABLE_RE, '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /** Trim and drop control characters (newlines are collapsed to spaces). */
@@ -26,7 +55,7 @@ const nameSchema = z
   .string({ error: NAME_ERROR })
   .max(500, { error: NAME_ERROR })
   .transform(normalizeName)
-  .pipe(z.string().min(1, { error: NAME_ERROR }).max(LIMITS.nameMaxLength, { error: NAME_ERROR }));
+  .pipe(z.string().refine(isValidName, { error: NAME_ERROR }));
 
 const idSchema = (what: string) => z.string({ error: `Missing ${what}` }).min(1, { error: `Missing ${what}` }).max(64, { error: `Invalid ${what}` });
 

@@ -123,6 +123,33 @@ describe('http', () => {
     expect(out.indexOf('<title>')).toBeLessThan(out.indexOf('</head>'));
   });
 
+  it('$ patterns in user text stay literal (no page fragments spliced into the meta tags)', async () => {
+    const page =
+      '<!doctype html><html><head><title>Flock Poker</title><meta property="og:title" content="old" /><meta property="og:url" content="/" /></head><body></body></html>';
+    const out = injectMeta(page, { title: "Join $`$&$$Bill$'s", description: "$` and $' and $&" });
+    expect(out).toContain("<title>Join $`$&amp;$$Bill$&#39;s</title>");
+    expect(out).toContain(`<meta property="og:title" content="Join $\`$&amp;$$Bill$&#39;s" />`);
+    expect(out).toContain(`<meta name="twitter:description" content="$\` and $&#39; and $&amp;" />`);
+    expect(out.match(/<!doctype/g)).toHaveLength(1);
+    expect(out.match(/<title>/g)).toHaveLength(1);
+    const abs = absolutizeMeta(page, 'https://poker.example.com', '/x$&y$`');
+    expect(abs).toContain('<meta property="og:url" content="https://poker.example.com/x$&amp;y$`" />');
+    expect(abs.match(/<\/head>/g)).toHaveLength(1);
+    const noUrl = absolutizeMeta('<head></head>', 'https://p.example', "/a$'b");
+    expect(noUrl).toBe(`<head>    <meta property="og:url" content="https://p.example/a$&#39;b" />\n  </head>`);
+
+    // over HTTP: a host named "$`" gets a clean invite page
+    const room = server.rooms.create({});
+    room.addHost('$`');
+    const html = await (await fetch(`${base}/g/${room.id}`)).text();
+    expect(html).toContain('<title>Join $`&#39;s poker game</title>');
+    expect(html).toContain('<meta property="og:title" content="Join $`&#39;s poker game" />');
+    expect(html.match(/<!doctype/gi)).toHaveLength(1);
+    const spa = await (await fetch(`${base}/x$&y`)).text();
+    expect(spa).toContain(`<meta property="og:url" content="${base}/x$&amp;y" />`);
+    expect(spa.match(/<\/head>/g)).toHaveLength(1);
+  });
+
   it('works without a client dir', async () => {
     const s = createAppServer({ clientDir: null });
     const port = await s.listen(0);

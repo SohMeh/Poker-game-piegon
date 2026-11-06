@@ -55,10 +55,25 @@ export function eligibleCount(room: RoomView): number {
 
 export function isGameOver(room: RoomView): boolean {
   if (room.gameOverWinnerId) return true;
-  // Fallback for "nobody holds chips" (gameOverWinnerId is null then): only between hands.
+  // Fallback for "nobody here holds chips" (gameOverWinnerId is null then): only between hands.
+  // Someone standing with chips can still sit back down, so they keep the game going.
   if (!room.started || room.status === 'lobby' || room.hand) return false;
-  const seated = seatedPlayers(room);
-  return seated.length >= 1 && seated.filter((p) => p.stack > 0).length === 0;
+  return seatedPlayers(room).length >= 1 && !room.ledger.some((r) => r.inRoom && r.stack > 0);
+}
+
+/**
+ * The game is running but no hand can be dealt: fewer than two seated players with chips are in
+ * (someone stood up, left, sits out or is offline). Not game over: they can come back.
+ */
+export function isStalled(room: RoomView): boolean {
+  return room.started && room.status === 'running' && !room.hand && !isGameOver(room) && eligibleCount(room) < 2;
+}
+
+/** A spectator's first seat needs the host's OK (approval setting, or joining a game under way). */
+export function seatNeedsApproval(room: RoomView): boolean {
+  if (room.me.isHost) return false;
+  const me = myPlayer(room);
+  return room.settings.requireApproval || (room.started && (me?.buyIns ?? 0) === 0);
 }
 
 /** Chips I need to put in to call right now (0 = I could check), capped at my stack. */

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOM_ID_ALPHABET, TIMING } from '../../shared';
 import { newPlayerId, newRoomId, newToken, normalizeRoomId } from './ids';
 import { RoomManager } from './RoomManager';
-import { checkSettings, normalizeName, parsePayload, schemas } from './validation';
+import { checkSettings, nameSkeleton, normalizeName, parsePayload, schemas } from './validation';
 import { DEFAULT_SETTINGS } from '../../shared';
 
 describe('ids', () => {
@@ -41,6 +41,19 @@ describe('validation', () => {
     expect(parsePayload(schemas.settings, { bigBlind: 'big' })).toEqual({ ok: false, error: 'Big blind must be a number' });
   });
 
+  it('rejects blank-rendering names and strips invisible characters', () => {
+    for (const name of ['ㅤ', 'ᅟ', '⠀', '\u00ad', 'ﾠ', '\u034f', '\u180e', '\u200d', ' \u2800 \u3164 ']) {
+      expect(parsePayload(schemas.rename, { name })).toEqual({ ok: false, error: 'Enter a name (1–16 characters)' });
+    }
+    expect(normalizeName('Al\u00adice')).toBe('Alice');
+    expect(normalizeName('Bo\u200db')).toBe('Bob');
+    expect(normalizeName('Ｂｏｂ')).toBe('Bob'); // NFKC folds full-width look-alikes
+    expect(normalizeName('❤️ Kim')).toBe('❤️ Kim'); // emoji presentation selector kept
+    expect([...normalizeName(`a${'\u0301'.repeat(15)}`)]).toHaveLength(4); // capped combining marks
+    expect(parsePayload(schemas.rename, { name: 'José' })).toEqual({ ok: true, data: { name: 'José' } });
+    expect(nameSkeleton('ALICE\ufe0f')).toBe(nameSkeleton('alice'));
+  });
+
   it('checkSettings accepts the defaults', () => {
     expect(checkSettings(DEFAULT_SETTINGS, { started: false, currentBuyIn: 2000, highestUsedSeat: 0 })).toBeNull();
   });
@@ -64,15 +77,36 @@ describe('RoomManager', () => {
     m.close();
   });
 
+  /** A room where something happened (a friend joined), so it gets the full idle TTL. */
+  function usedRoom(m: RoomManager) {
+    const room = m.create();
+    const host = room.addHost('Alice');
+    room.join({ name: 'Bob' });
+    return { room, host };
+  }
+
+  /** Two players seated and connected, one hand dealt, then everybody's phone goes away. */
+  function dealtRoom(m: RoomManager) {
+    const room = m.create();
+    const host = room.addHost('Alice').playerId;
+    const bob = room.join({ name: 'Bob' }).playerId;
+    room.attach(host);
+    room.attach(bob);
+    room.takeSeat(bob, 1);
+    room.start(host);
+    room.detach(host);
+    room.detach(bob);
+    return room;
+  }
+
   it('sweeps rooms with no connected sockets after the idle TTL', () => {
     const m = new RoomManager();
-    const idle = m.create();
-    const busy = m.create();
-    const host = busy.addHost('Alice');
+    const idle = usedRoom(m).room;
+    const { room: busy, host } = usedRoom(m);
     busy.attach(host.playerId);
-    const later = m.create();
+    const later = usedRoom(m).room;
     vi.advanceTimersByTime(TIMING.roomIdleTtlMs / 2);
-    const fresh = m.create();
+    const fresh = usedRoom(m).room;
     vi.advanceTimersByTime(TIMING.roomIdleTtlMs / 2 + 60_000);
     expect(m.get(idle.id)).toBeUndefined();
     expect(m.get(later.id)).toBeUndefined();
@@ -89,11 +123,74 @@ describe('RoomManager', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('caps the number of rooms', () => {
+  it('abandoned tables (no hand dealt, nobody joined) are swept after a short TTL', () => {
+    const m = new RoomManager();
+    const lonely = m.create();
+    const lonelyHost = lonely.addHost('Alice').playerId;
+    lonely.attach(lonelyHost);
+    lonely.detach(lonelyHost);
+    const used = usedRoom(m).room;
+    const dealt = dealtRoom(m);
+    expect(lonely.isAbandoned()).toBe(true);
+    expect(used.isAbandoned()).toBe(false);
+    expect(dealt.hasDealt()).toBe(true);
+    vi.advanceTimersByTime(TIMING.abandonedRoomIdleTtlMs - 60_000);
+    expect(m.get(lonely.id)).toBe(lonely);
+    vi.advanceTimersByTime(120_000);
+    expect(m.get(lonely.id)).toBeUndefined();
+    expect(m.get(used.id)).toBe(used);
+    expect(m.get(dealt.id)).toBe(dealt);
+    // a real game keeps the long TTL, even after a rematch reset its hand counter
+    dealt.rematch(dealt.getHostId());
+    expect(dealt.hasDealt()).toBe(true);
+    vi.advanceTimersByTime(TIMING.roomIdleTtlMs / 2);
+    expect(m.get(dealt.id)).toBe(dealt);
+    m.close();
+  });
+
+  it('at the room cap, idle rooms make way (never-dealt first, longest empty first)', () => {
+    const m = new RoomManager({ maxRooms: 4 });
+    const dealt = dealtRoom(m); // empty since t=0, but a real game
+    vi.advanceTimersByTime(1000);
+    const old = m.create(); // empty since t=1s, nothing happened
+    vi.advanceTimersByTime(1000);
+    const newer = m.create();
+    const live = m.create();
+    live.attach(live.addHost('Alice').playerId);
+    // full: the oldest empty never-dealt room goes first
+    const r5 = m.create();
+    expect(m.get(old.id)).toBeUndefined();
+    expect(m.get(newer.id)).toBe(newer);
+    expect(m.get(dealt.id)).toBe(dealt);
+    expect(m.size).toBe(4);
+    r5.attach(r5.addHost('Bo').playerId);
+    m.create(); // evicts `newer`
+    expect(m.get(newer.id)).toBeUndefined();
+    expect(m.get(dealt.id)).toBe(dealt);
+    m.close();
+  });
+
+  it('only refuses new rooms when every room has somebody connected', () => {
     const m = new RoomManager({ maxRooms: 2 });
-    m.create();
-    m.create();
+    for (let i = 0; i < 2; i++) {
+      const r = m.create();
+      r.attach(r.addHost(`H${i}`).playerId);
+    }
     expect(() => m.create()).toThrow(/busy/);
+    m.close();
+  });
+
+  it('a flood of throwaway rooms cannot lock out the next host', () => {
+    const m = new RoomManager({ maxRooms: 50 });
+    for (let i = 0; i < 500; i++) {
+      const r = m.create();
+      const h = r.addHost('Spam').playerId;
+      r.attach(h);
+      r.detach(h);
+    }
+    expect(m.size).toBe(50);
+    const mine = m.create();
+    expect(m.get(mine.id)).toBe(mine);
     m.close();
   });
 });

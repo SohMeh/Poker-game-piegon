@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TIMING, type RoomView } from '../../shared';
+import { KICKED_ERROR, TIMING, type RoomView } from '../../shared';
 import { Room, RoomError } from './Room';
 import { advanceUntil, deckFor, makeTable, player, type Table } from './test-utils';
 
@@ -738,7 +738,7 @@ describe('kick', () => {
     expect(v.hand?.toActPlayerId).toBe(b);
     expect(chatTexts(t)).toContain('Carol was removed by the host');
     expectError(() => t.room.viewFor(c), 'You are not in this room');
-    expectError(() => t.room.join({ token: t.tokens[2] }), /expired/);
+    expectError(() => t.room.join({ token: t.tokens[2] }), KICKED_ERROR);
     expect(t.room.playerIdForToken(t.tokens[2]!)).toBeNull();
     t.act(b, 'fold');
     expect(t.view().ledger.find((r) => r.playerId === c)).toMatchObject({ inRoom: false, stack: 1980, net: -20 });
@@ -1028,7 +1028,9 @@ describe('rematch', () => {
     const [a, b, c] = t.ids as [string, string, string];
     const d = t.room.join({ name: 'Dan' }).playerId;
     t.room.attach(d);
-    t.room.takeSeat(d, 3); // sits during the result display
+    // sits during the result display (a newcomer after the start needs the host's OK)
+    expect(t.room.takeSeat(d, 3)).toEqual({ pending: true });
+    t.room.approveSeat(a, d, true);
     t.room.standUp(d); // ...and stands again: has a ledger row but is not seated
     expect(t.view().ledger.map((r) => r.playerId)).toContain(d);
     const voteId = t.room.requestBuyBack(a).voteId;
@@ -1043,13 +1045,25 @@ describe('rematch', () => {
     ]);
     expect(chatTexts(t)).toContain('New game! Everyone at the table starts again with 2,000');
     expectError(() => t.room.voteBuyBack(b, voteId, true), 'That vote is over');
-    // buy-in is unlocked again
+    // buy-in is unlocked again, and everyone at the table moves to the new amount
     t.room.updateSettings(a, { buyIn: 3000 });
+    expect(t.view().ledger.map((r) => [r.playerId, r.buyIns, r.totalBuyIn, r.stack])).toEqual([
+      [a, 1, 3000, 3000],
+      [b, 1, 3000, 3000],
+      [c, 1, 3000, 3000],
+    ]);
+    expect(chatTexts(t)).toContain('Buy-in is now 3,000 — everyone at the table now has 3,000');
     t.room.start(a);
     expect(t.view().hand?.handNumber).toBe(1);
-    // Dan never sat in this game: sitting now gives a fresh buy-in at the new amount
-    t.room.takeSeat(d, 3);
-    expect(t.view().ledger.find((r) => r.playerId === d)).toMatchObject({ buyIns: 1, totalBuyIn: 3000 });
+    // Dan never sat in this game: his first seat (after the start: with the host's OK) gives a
+    // fresh buy-in at the new amount
+    expect(t.room.takeSeat(d, 3)).toEqual({ pending: true });
+    expect(t.view().ledger.find((r) => r.playerId === d)).toBeUndefined();
+    t.room.approveSeat(a, d, true);
+    const v2 = t.view();
+    expect(v2.ledger.find((r) => r.playerId === d)).toMatchObject({ buyIns: 1, totalBuyIn: 3000 });
+    expect(v2.ledger.every((r) => r.buyIns === 1 && r.totalBuyIn === 3000)).toBe(true);
+    expect(v2.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
     t.room.dispose();
   });
 
@@ -1084,11 +1098,21 @@ describe('settings', () => {
     expect(v.settings).toMatchObject({ maxPlayers: 3, turnTimeSec: 0, buyBackVoteSec: 60, requireApproval: true, allowBuyBack: false, buyIn: 3000 });
     expect(v.seats).toHaveLength(3);
     expect(logTexts(t)).toEqual(
-      expect.arrayContaining(['The table now has 3 seats', 'Shot clock turned off', 'Buy-in is now 3,000', 'Buy-backs are turned off']),
+      expect.arrayContaining([
+        'The table now has 3 seats',
+        'Shot clock turned off',
+        'Buy-in is now 3,000 — everyone at the table now has 3,000',
+        'Buy-backs are turned off',
+      ]),
     );
+    // before the first hand, the players already seated follow the new buy-in (one buy-in each)
+    expect(v.ledger.map((r) => [r.buyIns, r.totalBuyIn, r.stack])).toEqual([
+      [1, 3000, 3000],
+      [1, 3000, 3000],
+      [1, 3000, 3000],
+    ]);
     up({ maxPlayers: 6 });
     expect(t.view().seats).toHaveLength(6);
-    // the room was created before the buy-in change, so seated players keep their stacks
     t.room.start(a);
     expectError(() => up({ buyIn: 4000 }), /buy-in is locked/);
     up({ buyIn: 3000, smallBlind: 50, bigBlind: 100 }); // unchanged buy-in is fine
@@ -1320,6 +1344,178 @@ describe('misc', () => {
     expect(seen.showdowns).toBeGreaterThan(0);
     expect(seen.approved).toBeGreaterThan(0);
     expect(seen.rejected).toBeGreaterThan(0);
+    t.room.dispose();
+  });
+});
+
+// ===================================================================== house-rule regressions
+
+describe('one buy-in for everyone', () => {
+  it('changing the buy-in before the first hand moves everyone who already sat to the new amount', () => {
+    const t = makeTable({ names: ['Alice', 'Bob'] });
+    const [a, b] = t.ids as [string, string];
+    // Dan sat and stood up again: he has a ledger row but no seat
+    const d = t.room.join({ name: 'Dan' }).playerId;
+    t.room.attach(d);
+    t.room.takeSeat(d, 5);
+    t.room.standUp(d);
+    t.room.updateSettings(a, { buyIn: 5000 });
+    let v = t.view();
+    expect(v.ledger.map((r) => [r.name, r.buyIns, r.totalBuyIn, r.stack])).toEqual([
+      ['Alice', 1, 5000, 5000],
+      ['Bob', 1, 5000, 5000],
+      ['Dan', 1, 5000, 5000],
+    ]);
+    expect(chatTexts(t)).toContain('Buy-in is now 5,000 — everyone at the table now has 5,000');
+    // Carol sits after the change: the same 5,000
+    const c = t.room.join({ name: 'Carol' }).playerId;
+    t.room.attach(c);
+    t.room.takeSeat(c, 2);
+    t.room.start(a);
+    v = t.view();
+    expect(v.hand?.handNumber).toBe(1);
+    for (const id of [a, b, c]) {
+      const p = player(v, id);
+      expect(p.stack + p.bet).toBe(5000);
+    }
+    expect(v.ledger.every((r) => r.buyIns === 1 && r.totalBuyIn === 5000)).toBe(true);
+    expect(v.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
+    expect(v.ledger.reduce((sum, r) => sum + r.stack, 0)).toBe(4 * 5000);
+    // a later buy-back pays the same amount everyone bought in for
+    t.room.dispose();
+  });
+});
+
+describe('game over', () => {
+  /** Heads-up Alice (button) vs Bob, hand 1 dealt. */
+  function headsUp(): Table {
+    const t = makeTable({ names: ['Alice', 'Bob'] });
+    t.room.start(t.ids[0]!);
+    expect(t.view().hand?.handNumber).toBe(1);
+    return t;
+  }
+
+  it('a player who stands up with chips does not hand the game to the other one', () => {
+    const t = headsUp();
+    const [a, b] = t.ids as [string, string];
+    t.room.standUp(b); // folds his blind
+    vi.advanceTimersByTime(TIMING.nextHandDelayMs);
+    let v = t.view();
+    expect(v.hand).toBeNull();
+    expect(player(v, b).seat).toBeNull();
+    expect(player(v, b).stack).toBeGreaterThan(1900);
+    expect(v.gameOverWinnerId).toBeNull();
+    // he sits back down: the next hand is dealt right away
+    t.room.takeSeat(b, 1);
+    v = t.view();
+    expect(v.hand?.handNumber).toBe(2);
+    expect(v.gameOverWinnerId).toBeNull();
+    expect(t.view(a).ledger.reduce((s, r) => s + r.stack, 0)).toBe(4000);
+    t.room.dispose();
+  });
+
+  it('a player who leaves with chips can come back, so the game is not over either', () => {
+    const t = headsUp();
+    const [, b] = t.ids as [string, string];
+    t.room.leave(b);
+    t.room.detach(b);
+    vi.advanceTimersByTime(TIMING.nextHandDelayMs);
+    expect(t.view().gameOverWinnerId).toBeNull();
+    t.room.join({ token: t.tokens[1] });
+    t.room.attach(b);
+    t.room.takeSeat(b, 1);
+    expect(t.view().hand?.handNumber).toBe(2);
+    t.room.dispose();
+  });
+
+  it('sitting out does not end the game; kicking the only other chip holder does', () => {
+    const t = headsUp();
+    const [a, b] = t.ids as [string, string];
+    t.room.setSitOut(b, true);
+    t.act(a, 'fold');
+    vi.advanceTimersByTime(TIMING.nextHandDelayMs);
+    expect(t.view().gameOverWinnerId).toBeNull();
+    t.room.kick(a, b); // his chips are frozen in the ledger
+    expect(t.view().gameOverWinnerId).toBe(a);
+    t.room.dispose();
+  });
+});
+
+describe('kicked players stay out', () => {
+  it('a kicked device cannot rejoin, not even as a "new" player with another name', () => {
+    const t = makeTable({
+      names: ['Alice', 'Bob'],
+      decks: { 1: deckFor([0, 1], 0, { 0: 'As Ah', 1: '7c 2d' }, 'Kd 9s 5h 3c Jd') },
+    });
+    const [a, b] = t.ids as [string, string];
+    t.room.start(a);
+    t.act(a, 'allin');
+    t.act(b, 'allin');
+    advanceUntil(() => t.view().hand?.phase === 'complete');
+    expect(player(t.view(), b).stack).toBe(0);
+    t.room.kick(a, b);
+    const bobToken = t.tokens[1]!;
+    expectError(() => t.room.join({ token: bobToken }), KICKED_ERROR);
+    expectError(() => t.room.join({ token: bobToken, name: 'Bob' }), KICKED_ERROR);
+    expectError(() => t.room.join({ token: bobToken, name: 'Robert' }), KICKED_ERROR);
+    expect(t.view().ledger.map((r) => [r.name, r.totalBuyIn, r.stack, r.inRoom])).toEqual([
+      ['Alice', 2000, 4000, true],
+      ['Bob', 2000, 0, false],
+    ]);
+    t.room.dispose();
+  });
+
+  it('after the start, a new identity sits only with the host’s OK (no silent fresh buy-in)', () => {
+    const t = makeTable({ names: ['Alice', 'Bob'] });
+    const [a] = t.ids as [string, string];
+    t.room.start(a);
+    const n = t.room.join({ name: 'Bob' }); // e.g. a busted Bob in a private tab
+    t.room.attach(n.playerId);
+    expect(t.view(n.playerId).me.name).toBe('Bob 2');
+    t.room.drainOutbox();
+    expect(t.room.takeSeat(n.playerId, 4)).toEqual({ pending: true });
+    let v = t.view();
+    expect(player(v, n.playerId)).toMatchObject({ seat: null, pendingSeat: 4, stack: 0 });
+    expect(v.ledger.reduce((s, r) => s + r.totalBuyIn, 0)).toBe(4000);
+    expect(t.room.drainOutbox().notices).toContainEqual({ playerId: a, notice: { kind: 'info', text: 'Bob 2 wants to sit down' } });
+    t.room.approveSeat(a, n.playerId, true);
+    v = t.view();
+    expect(player(v, n.playerId)).toMatchObject({ seat: 4, stack: 2000 });
+    expect(v.ledger.reduce((s, r) => s + r.totalBuyIn, 0)).toBe(6000);
+    // someone who already bought in can stand up and sit again without asking
+    t.room.standUp(n.playerId);
+    expect(t.room.takeSeat(n.playerId, 5)).toEqual({ pending: false });
+    t.room.dispose();
+  });
+});
+
+describe('names and presence lines', () => {
+  it('invisible or look-alike names are rejected or made unique', () => {
+    const t = makeTable({ names: ['Alice'] });
+    const [a] = t.ids as [string];
+    for (const bad of ['ㅤ', 'ᅟ', '⠀', '­', '‍​', 'ﾠ']) {
+      expectError(() => t.room.join({ name: bad }), /Enter a name/);
+      expectError(() => t.room.rename(a, bad), /Enter a name/);
+    }
+    const imp = t.room.join({ name: 'Al­ice' }).playerId;
+    expect(t.view(imp).me.name).toBe('Alice 2');
+    const wide = t.room.join({ name: 'ＡＬＩＣＥ' }).playerId;
+    expect(t.view(wide).me.name).toBe('ALICE 3');
+    const zalgo = t.room.join({ name: `a${'́'.repeat(15)}` }).playerId;
+    expect([...t.view(zalgo).me.name].length).toBeLessThanOrEqual(4);
+    t.room.dispose();
+  });
+
+  it('spectators come and go in the log only; players with a seat are announced in the chat', () => {
+    const t = makeTable({ names: ['Alice', 'Bob'] });
+    const [, b] = t.ids as [string, string];
+    const before = t.room.history().chat.length;
+    for (let i = 0; i < 30; i++) t.room.join({ name: `you suck ${i}` });
+    expect(t.room.history().chat).toHaveLength(before);
+    expect(logTexts(t)).toContain('you suck 29 joined');
+    t.room.leave(b);
+    t.room.join({ token: t.tokens[1] });
+    expect(chatTexts(t).slice(-2)).toEqual(['Bob left', 'Bob came back']);
     t.room.dispose();
   });
 });

@@ -15,25 +15,133 @@ export type AppServer = Server<ClientToServerEvents, ServerToClientEvents, Recor
 export type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
 export interface SocketLimits {
-  /** Token bucket: burst size. */
+  /** Token bucket (per socket): burst size. */
   burst: number;
-  /** Token bucket: refill per second. */
+  /** Token bucket (per socket): refill per second. */
   perSecond: number;
-  /** Chat: max messages per window. */
+  /** Chat: max messages per window, per player (shared by all of that player's sockets). */
   chatMessages: number;
   chatWindowMs: number;
+  /** Rooms one client address may create per createWindowMs. */
+  createsPerWindow?: number;
+  createWindowMs?: number;
+  /** New identities (name joins) one client address may create in one room per minute. */
+  newPlayersPerMinute?: number;
+  /** Seat take / stand up / sit out / rename changes per player per minute. */
+  seatChangesPerMinute?: number;
+  /** The same, summed over every player from one client address in one room. */
+  seatChangesPerAddressPerMinute?: number;
 }
 
-export const DEFAULT_SOCKET_LIMITS: SocketLimits = { burst: 20, perSecond: 10, chatMessages: 5, chatWindowMs: 5000 };
+export const DEFAULT_SOCKET_LIMITS: SocketLimits = {
+  burst: 20,
+  perSecond: 10,
+  chatMessages: 5,
+  chatWindowMs: 5000,
+  createsPerWindow: 20,
+  createWindowMs: 10 * 60_000,
+  newPlayersPerMinute: 10,
+  seatChangesPerMinute: 20,
+  seatChangesPerAddressPerMinute: 30,
+};
 
-/** Max rooms one socket may create per minute. */
-const CREATES_PER_MINUTE = 5;
+export interface SocketOptions {
+  /**
+   * Reverse proxies in front of the server that append to X-Forwarded-For (Render, a load
+   * balancer…). 0 = use the TCP peer address. The client address is the entry this many hops from
+   * the right; entries further left are client-controlled and never used.
+   */
+  trustProxyHops?: number;
+}
 
 export const KICK_REASON = 'The host removed you from the table';
 const GENERIC_ERROR = 'Something went wrong — please try again';
 
 type HandlerResult = { data?: object; after?: () => void } | void;
 type Handler = (payload: unknown) => HandlerResult;
+
+/** Sliding-window counter per key (rate limits shared across sockets). */
+export class WindowLimiter {
+  private readonly hits = new Map<string, number[]>();
+  private lastPrune = 0;
+  constructor(
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {}
+  /** Records a hit for `key` and returns true, or returns false when the key is over its limit. */
+  take(key: string, now = Date.now()): boolean {
+    if (!this.allows(key, now)) return false;
+    this.hits.get(key)!.push(now);
+    return true;
+  }
+  /** True when `key` may take another hit (does not record one). */
+  allows(key: string, now = Date.now()): boolean {
+    let list = this.hits.get(key);
+    if (!list) {
+      // forget idle keys now and then, so the map stays small without a timer
+      if (this.hits.size >= 5000 && now - this.lastPrune >= 1000) this.prune(now);
+      this.hits.set(key, (list = []));
+    }
+    while (list.length && now - list[0]! >= this.windowMs) list.shift();
+    return list.length < this.max;
+  }
+  record(key: string, now = Date.now()): void {
+    const list = this.hits.get(key);
+    if (list) list.push(now);
+    else this.hits.set(key, [now]);
+  }
+  /** Drops keys whose hits have all expired. */
+  prune(now = Date.now()): void {
+    this.lastPrune = now;
+    for (const [k, list] of this.hits) if (!list.length || now - list[list.length - 1]! >= this.windowMs) this.hits.delete(k);
+  }
+  deleteWhere(pred: (key: string) => boolean): void {
+    for (const k of [...this.hits.keys()]) if (pred(k)) this.hits.delete(k);
+  }
+}
+
+/**
+ * Rate-limit key for an IP address: IPv4 as is (IPv4-mapped IPv6 unwrapped), IPv6 by its /64
+ * (one subscriber usually owns a whole /64, so per-address limits must not be per /128).
+ */
+export function addressKey(raw: string): string {
+  let a = raw.trim().toLowerCase();
+  if (a.startsWith('[')) a = a.slice(1, a.indexOf(']') > 0 ? a.indexOf(']') : undefined);
+  const zone = a.indexOf('%');
+  if (zone >= 0) a = a.slice(0, zone);
+  const v4 = /^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/.exec(a);
+  if (v4) return v4[1]!;
+  if (a.includes(':')) {
+    const [head = '', tail] = a.split('::');
+    const h = head ? head.split(':') : [];
+    const t = tail ? tail.split(':') : [];
+    const groups = tail === undefined ? h : [...h, ...new Array<string>(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+    if (groups.length >= 4 && groups.slice(0, 4).every((g) => /^[0-9a-f]{1,4}$/.test(g))) {
+      return `${groups
+        .slice(0, 4)
+        .map((g) => parseInt(g, 16).toString(16))
+        .join(':')}::/64`;
+    }
+  }
+  return a || 'unknown';
+}
+
+/** The client's address as seen through `trustProxyHops` trusted proxies (see SocketOptions). */
+export function clientAddress(
+  handshake: { address: string; headers: Record<string, string | string[] | undefined> },
+  trustProxyHops = 0,
+): string {
+  if (trustProxyHops > 0) {
+    const raw = handshake.headers['x-forwarded-for'];
+    const list = (Array.isArray(raw) ? raw.join(',') : (raw ?? ''))
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+    const entry = list[list.length - trustProxyHops];
+    if (entry) return addressKey(entry);
+  }
+  return addressKey(handshake.address ?? '');
+}
 
 class TokenBucket {
   private tokens: number;
@@ -68,11 +176,22 @@ export interface SocketLayer {
 export function registerSocketHandlers(
   io: AppServer,
   rooms: RoomManager,
-  limits: SocketLimits = DEFAULT_SOCKET_LIMITS,
+  limitsIn: SocketLimits = DEFAULT_SOCKET_LIMITS,
+  opts: SocketOptions = {},
 ): SocketLayer {
+  const limits = { ...DEFAULT_SOCKET_LIMITS, ...limitsIn } as Required<SocketLimits>;
   /** roomId -> sockets attached to that room. */
   const members = new Map<string, Set<AppSocket>>();
   const channel = (roomId: string) => `room:${roomId}`;
+
+  // Rate limits that must hold across sockets: a client opening many connections (or one player
+  // on several tabs) shares one budget. Keys: client address, or `${roomId}:${playerId}`.
+  const createLimiter = new WindowLimiter(limits.createsPerWindow, limits.createWindowMs);
+  const newPlayerLimiter = new WindowLimiter(limits.newPlayersPerMinute, 60_000);
+  const chatLimiter = new WindowLimiter(limits.chatMessages, limits.chatWindowMs);
+  const seatLimiter = new WindowLimiter(limits.seatChangesPerMinute, 60_000);
+  const seatAddressLimiter = new WindowLimiter(limits.seatChangesPerAddressPerMinute, 60_000);
+  const playerKey = (roomId: string, playerId: string) => `${roomId}:${playerId}`;
 
   // ------------------------------------------------------------ coalesced broadcast
   const dirty = new Set<Room>();
@@ -94,6 +213,8 @@ export function registerSocketHandlers(
     }
     members.delete(room.id);
     dirty.delete(room);
+    const prefix = `${room.id}:`;
+    for (const l of [newPlayerLimiter, chatLimiter, seatLimiter, seatAddressLimiter]) l.deleteWhere((k) => k.startsWith(prefix));
   };
 
   function flushAll(): void {
@@ -175,14 +296,25 @@ export function registerSocketHandlers(
     const socket = rawSocket as AppSocket;
     socket.data = { roomId: null, playerId: null };
     const bucket = new TokenBucket(limits.burst, limits.perSecond);
-    const chatTimes: number[] = [];
-    const createTimes: number[] = [];
+    const address = clientAddress(socket.handshake, opts.trustProxyHops ?? 0);
 
     const member = (): { room: Room; playerId: string } => {
       const { roomId, playerId } = socket.data;
       const room = roomId ? rooms.get(roomId) : undefined;
       if (!room || room.disposed || !playerId) throw new RoomError('Join a room first');
       return { room, playerId };
+    };
+
+    /**
+     * Seat / name changes write log lines for everyone: a budget per player, and one per client
+     * address (many throwaway identities from one phone share it), keep the hand log readable.
+     */
+    const seatChange = (room: Room, playerId: string) => {
+      const pk = playerKey(room.id, playerId);
+      const ak = `${room.id}:${address}`;
+      if (!seatLimiter.allows(pk) || !seatAddressLimiter.allows(ak)) throw new RoomError('Slow down a little — too many changes');
+      seatLimiter.record(pk);
+      seatAddressLimiter.record(ak);
     };
 
     const on = (event: keyof ClientToServerEvents, handler: Handler) => {
@@ -223,11 +355,10 @@ export function registerSocketHandlers(
     // ---------------------------------------------------------- rooms
     on('room:create', (payload) => {
       const p = parse(schemas.createRoom, payload);
-      const now = Date.now();
-      while (createTimes.length && now - createTimes[0]! >= 60_000) createTimes.shift();
-      if (createTimes.length >= CREATES_PER_MINUTE) throw new RoomError('You’re creating tables too fast — wait a minute');
+      // per client address, not per socket: reconnecting must not reset the budget
+      if (!createLimiter.allows(address)) throw new RoomError('You’re creating tables too fast — wait a few minutes');
       const room = rooms.create(p.settings);
-      createTimes.push(now);
+      createLimiter.record(address);
       const { playerId, token } = room.addHost(p.name);
       attachSocket(socket, room, playerId);
       return {
@@ -240,7 +371,13 @@ export function registerSocketHandlers(
       const p = parse(schemas.joinRoom, payload);
       const room = rooms.get(p.roomId);
       if (!room || room.disposed) throw new RoomError('Room not found — check the link or code');
+      const known = p.token ? room.playerIdForToken(p.token) : null;
+      const newKey = `${room.id}:${address}`;
+      if (!known && p.name !== undefined && !newPlayerLimiter.allows(newKey)) {
+        throw new RoomError('Too many people joined from your network — wait a minute');
+      }
       const res = room.join({ token: p.token, name: p.name });
+      if (!res.reconnected) newPlayerLimiter.record(newKey);
       attachSocket(socket, room, res.playerId);
       rooms.onRoomChange?.(room);
       return {
@@ -256,28 +393,39 @@ export function registerSocketHandlers(
       for (const s of socketsOf(room.id, playerId)) detachSocket(s);
     });
 
+    // This tab stopped showing the room (went back home / to another room): the player keeps
+    // their seat and stack, but counts as away exactly as if the connection had dropped.
+    on('room:detach', (payload) => {
+      parse(schemas.empty, payload);
+      detachSocket(socket);
+    });
+
     // ---------------------------------------------------------- seats
     on('seat:take', (payload) => {
       const { seat } = parse(schemas.seatTake, payload);
       const { room, playerId } = member();
+      seatChange(room, playerId);
       return { data: room.takeSeat(playerId, seat) };
     });
 
     on('seat:leave', (payload) => {
       parse(schemas.empty, payload);
       const { room, playerId } = member();
+      seatChange(room, playerId);
       room.standUp(playerId);
     });
 
     on('player:sitOut', (payload) => {
       const { sittingOut } = parse(schemas.sitOut, payload);
       const { room, playerId } = member();
+      seatChange(room, playerId);
       room.setSitOut(playerId, sittingOut);
     });
 
     on('player:rename', (payload) => {
       const { name } = parse(schemas.rename, payload);
       const { room, playerId } = member();
+      seatChange(room, playerId);
       room.rename(playerId, name);
     });
 
@@ -317,13 +465,10 @@ export function registerSocketHandlers(
     on('chat:send', (payload) => {
       const { text } = parse(schemas.chat, payload);
       const { room, playerId } = member();
-      const now = Date.now();
-      while (chatTimes.length && now - chatTimes[0]! >= limits.chatWindowMs) chatTimes.shift();
-      if (chatTimes.length >= limits.chatMessages) {
-        throw new RoomError('You’re sending messages too fast — wait a moment');
-      }
+      const key = playerKey(room.id, playerId);
+      if (!chatLimiter.allows(key)) throw new RoomError('You’re sending messages too fast — wait a moment');
       room.sendChat(playerId, text);
-      chatTimes.push(now);
+      chatLimiter.record(key);
     });
 
     // ---------------------------------------------------------- host

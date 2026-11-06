@@ -182,7 +182,8 @@
   position: absolute;
   width: 0;
   height: 0;
-  z-index: 2;
+  /* above bet chips (z 2, placed later in the DOM) so a crowded pot row stays readable; below seats */
+  z-index: 3;
 }
 .board-cards {
   position: absolute;
@@ -197,9 +198,14 @@
   left: 0;
   bottom: calc(var(--cw) * 0.7 + 8px);
   transform: translateX(-50%);
+  /* side pots wrap into rows (growing upwards) between the side seats instead of running under them */
+  width: max-content;
+  max-width: min(var(--rw, 84vw), calc(100vw - 16px));
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   white-space: nowrap;
 }
 .pot-pill {
@@ -209,7 +215,8 @@
   min-height: 26px;
   padding: 2px 10px 2px 4px;
   border-radius: 999px;
-  background: rgba(0, 45, 20, 0.5);
+  /* opaque enough to stay legible over a bet chip in a cramped layout */
+  background: rgba(0, 45, 20, 0.78);
   color: #fff;
   font-weight: 800;
   font-size: 13px;
@@ -219,8 +226,30 @@
 .pot-pill b {
   font-weight: 900;
 }
+button.pot-pill {
+  border: 0;
+  font: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pot-more {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  font-weight: 900;
+}
+/* the expanded breakdown (tap on the compact chip) may cover seats for a moment: draw it on top */
+.pots.is-open {
+  z-index: 5;
+}
+.board:has(.pots.is-open) {
+  z-index: 6;
+}
 .pot-pill.is-side {
-  background: rgba(30, 0, 60, 0.45);
+  background: rgba(30, 0, 60, 0.7);
+  padding-left: 10px;
 }
 .pot-total {
   font-size: 11px;
@@ -441,7 +470,14 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--av) 55%, #fff) 0%, var(--av) 55%, color-mix(in srgb, var(--av) 75%, #000) 100%);
+  /* solid fill first: browsers without color-mix() (iOS < 16.2) drop only the gradient image */
+  background-color: var(--av);
+  background-image: radial-gradient(
+    circle at 34% 28%,
+    color-mix(in srgb, var(--av) 55%, #fff) 0%,
+    var(--av) 55%,
+    color-mix(in srgb, var(--av) 75%, #000) 100%
+  );
   color: #fff;
   font-weight: 900;
   line-height: 1;
@@ -1243,7 +1279,9 @@
 .vote-modal {
   width: min(100%, 420px);
   max-height: 100%;
+  /* only the voter list scrolls; Approve / Reject always stay on screen (silence counts as no) */
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   border-radius: 26px;
   background: #fff;
@@ -1256,6 +1294,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.vote-modal > * {
+  flex: none;
 }
 .vote-head {
   display: flex;
@@ -1334,6 +1375,12 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.vote-modal > .voters {
+  flex: 0 1 auto;
+  min-height: 30px;
+  overflow-y: auto;
+  align-content: flex-start;
+}
 .voter {
   display: inline-flex;
   align-items: center;
@@ -1380,7 +1427,61 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 4px;
+  /* pinned to the bottom edge of the modal even if its content ever has to scroll */
+  position: sticky;
+  bottom: -16px;
+  z-index: 1;
+  margin: 0 -16px -16px;
+  padding: 4px 16px 16px;
+  border-radius: 0 0 26px 26px;
+  background: #fff;
+}
+/* short screens (iPhone SE / mini in Safari, landscape): a tighter modal */
+@media (max-height: 700px) {
+  .vote-modal {
+    gap: 6px;
+    padding: 12px 14px 14px;
+  }
+  .vote-actions {
+    bottom: -14px;
+    margin: 0 -14px -14px;
+    padding: 2px 14px 14px;
+  }
+  .vote-actions .btn-lg {
+    min-height: 52px;
+    font-size: 18px;
+  }
+  .vote-head .avatar {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 17px !important;
+  }
+  .vote-title {
+    font-size: 16px;
+  }
+  .vote-desc {
+    font-size: 13px;
+  }
+  .vote-modal .voter {
+    padding: 2px 8px 2px 2px;
+    font-size: 13px;
+  }
+  .vote-modal .voter .avatar {
+    width: 22px !important;
+    height: 22px !important;
+  }
+}
+@media (max-height: 460px) {
+  .vote-layer {
+    padding: 6px;
+  }
+  .vote-head .avatar,
+  .vote-tally {
+    display: none;
+  }
+  .vote-kicker {
+    display: none;
+  }
 }
 
 /* floating cards (top of table) */
@@ -1442,6 +1543,58 @@
 }
 .vote-card-icon {
   font-size: 22px;
+}
+/* pending vote: one slim line over the top of the table, tap for the details */
+.float-card.vote-card.is-compact {
+  width: auto;
+  max-width: min(100%, 440px);
+  padding: 2px 10px 2px 6px;
+  border-radius: 999px;
+  gap: 4px;
+}
+.float-card.vote-card.is-compact.is-open {
+  border-radius: 18px;
+  padding: 6px 10px 8px;
+}
+.vote-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vote-card.is-compact .vote-card-icon {
+  font-size: 16px;
+}
+.vote-card-line {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+.vote-card-line b {
+  font-weight: 900;
+  color: var(--ink);
+}
+.vote-card.is-compact .vote-timer.is-compact {
+  min-width: 56px;
+}
+.vote-card-detail {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-soft);
 }
 .vote-card.tone-approved {
   background: #e3fbee;
@@ -1861,9 +2014,14 @@
     right: calc(var(--safe-r) + 10px);
     bottom: auto;
     top: calc(var(--safe-t) + 8px);
-    width: min(400px, 60vw);
+    /* stay inside the right-hand column (minmax(250px, 36%) above): the table, with the stacks
+       you are betting against, stays visible on the left */
+    width: min(400px, calc(max(250px, 36vw - var(--safe-l) * 0.36 - var(--safe-r) * 0.36) - 20px));
     padding: 10px;
     gap: 8px;
+  }
+  .raise-presets {
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   }
   .raise-amount {
     font-size: 28px;

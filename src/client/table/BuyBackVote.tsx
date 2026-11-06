@@ -128,27 +128,69 @@ function voteNameOf(room: RoomView): (id: string) => string {
   return (id) => (id === room.me.playerId ? 'you' : base(id));
 }
 
-/** Small card on the table for everyone who isn't being asked right now. */
+/**
+ * Small card on the table for everyone who isn't being asked right now. While pending it is a
+ * single line (it sits over the top seats for the whole vote, and players still need to see who
+ * is to act and their stacks); tapping it shows who voted what. It folds up again when the turn
+ * moves on.
+ */
 export function VoteProgressCard({ vote, room }: { vote: BuyBackVoteView; room: RoomView }) {
+  const [expanded, setExpanded] = useState(false);
+  const turnKey = room.hand && room.hand.phase === 'betting' ? `${room.hand.handNumber}:${room.hand.toActPlayerId}` : null;
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
   const nameOf = voteNameOf(room);
   const t = tallyVote(vote);
   const pending = vote.status === 'pending';
   const tone = pending ? 'pending' : vote.status === 'approved' ? 'approved' : 'rejected';
-  return (
-    <div className={`float-card vote-card tone-${tone}`} role="status" data-testid="buyback-progress">
-      <div className="float-card-row">
-        <span className="vote-card-icon" aria-hidden>
-          {pending ? '🗳️' : vote.status === 'approved' ? '🎉' : '🚫'}
-        </span>
-        <div className="float-card-text">
-          <b>
-            {vote.requesterName} {pending ? 'wants back in' : vote.status === 'approved' ? 'is back in!' : 'stays out'}
-          </b>
-          <span>{pending ? `${t.yes}/${t.total} agreed · ${formatChips(vote.amount)} chips` : voteOutcomeText(vote, nameOf)}</span>
+  const open = pending && expanded && openedAt === turnKey;
+  const icon = (
+    <span className="vote-card-icon" aria-hidden>
+      {pending ? '🗳️' : vote.status === 'approved' ? '🎉' : '🚫'}
+    </span>
+  );
+  if (!pending) {
+    return (
+      <div className={`float-card vote-card tone-${tone}`} role="status" data-testid="buyback-progress">
+        <div className="float-card-row">
+          {icon}
+          <div className="float-card-text">
+            <b>
+              {vote.requesterName} {vote.status === 'approved' ? 'is back in!' : 'stays out'}
+            </b>
+            <span>{voteOutcomeText(vote, nameOf)}</span>
+          </div>
         </div>
-        {pending ? <VoteTimer vote={vote} compact /> : null}
       </div>
-      {pending ? <VoterList vote={vote} room={room} compact /> : null}
+    );
+  }
+  return (
+    <div className={`float-card vote-card tone-${tone} is-compact ${open ? 'is-open' : ''}`} role="status" data-testid="buyback-progress">
+      <button
+        type="button"
+        className="vote-card-toggle"
+        aria-expanded={open}
+        data-testid="buyback-progress-toggle"
+        onClick={() => {
+          setExpanded(!open);
+          setOpenedAt(turnKey);
+        }}
+      >
+        {icon}
+        <span className="vote-card-line">
+          <b>{vote.requesterName} wants back in</b>
+          <span>
+            {' '}
+            · {t.yes}/{t.total} agreed
+          </span>
+        </span>
+        <VoteTimer vote={vote} compact />
+      </button>
+      {open ? (
+        <>
+          <p className="vote-card-detail">{formatChips(vote.amount)} chips · everyone at the table must agree</p>
+          <VoterList vote={vote} room={room} compact />
+        </>
+      ) : null}
     </div>
   );
 }

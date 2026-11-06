@@ -9,6 +9,11 @@ import {
   fitSeatSize,
   heroBottomMargin,
   MIN_SEAT_WIDTH,
+  POT_COMPACT_W,
+  potPillCount,
+  potRowCompact,
+  potRowSize,
+  resultLineMaxWidth,
   stadiumPerimeter,
   stadiumPoint,
   type Track,
@@ -248,6 +253,59 @@ describe('computeLayout', () => {
         box.x < zone.x + zone.width && box.x + box.w > zone.x && box.y < zone.y + zone.height && box.y + box.h > zone.y;
       expect(overlap).toBe(false);
     }
+  });
+});
+
+describe('pot row with side pots', () => {
+  const width = 375;
+  const height = 330;
+  const fit = fitSeatSize(width, height, 6, { heroBottom: true });
+  const seatWidth = Math.min(fit.seatWidth, 90);
+  const seatHeight = Math.round(seatWidth * 1.06);
+  const track = computeTrack({ width, height, seatWidth, seatHeight, bottomMargin: heroBottomMargin(seatHeight) });
+
+  it('counts a chip per pot plus "Total" while bets are still out', () => {
+    expect(potPillCount(null)).toBe(0);
+    expect(potPillCount({ pots: [], totalPot: 30, phase: 'betting' })).toBe(1);
+    expect(potPillCount({ pots: [{ amount: 260 }], totalPot: 260, phase: 'betting' })).toBe(1);
+    expect(potPillCount({ pots: [{ amount: 260 }], totalPot: 340, phase: 'betting' })).toBe(2);
+    expect(potPillCount({ pots: [{ amount: 3600 }, { amount: 1250 }, { amount: 900 }], totalPot: 6200, phase: 'betting' })).toBe(4);
+    expect(potPillCount({ pots: [{ amount: 3600 }], totalPot: 3600, phase: 'complete' })).toBe(0);
+  });
+
+  it('the no-bet zone above the board grows with the pot count but never gets wider than the gap between the side seats', () => {
+    const max = resultLineMaxWidth(track, seatWidth);
+    const zones = [1, 2, 3, 4].map((n) => boardGeometry(track, seatWidth, n).avoid[1]!);
+    const area = (z: { width: number; height: number }) => z.width * z.height;
+    for (let i = 1; i < zones.length; i++) expect(area(zones[i]!)).toBeGreaterThanOrEqual(area(zones[i - 1]!));
+    expect(area(zones[3]!)).toBeGreaterThan(area(zones[0]!));
+    // too many chips for one line: one compact chip, one row tall
+    for (const n of [2, 3, 4]) {
+      const z = boardGeometry(track, seatWidth, n).avoid[1]!;
+      if (potRowCompact(n, max)) {
+        expect(z.width).toBeLessThanOrEqual(POT_COMPACT_W);
+        expect(z.height).toBeLessThanOrEqual(33);
+      }
+    }
+    expect(potRowCompact(4, max)).toBe(true);
+    // wide tables keep the full row (and reserve all of it)
+    const wide = boardGeometry({ cx: 500, cy: 300, width: 900, height: 400 }, 90, 4).avoid[1]!;
+    expect(wide.width).toBeGreaterThan(300);
+    for (const z of zones) {
+      expect(z.width).toBeLessThanOrEqual(max);
+      expect(Math.abs(z.x + z.width / 2 - track.cx)).toBeLessThan(1); // centred over the board
+      expect(z.y + z.height).toBeLessThanOrEqual(track.cy); // above the board's centre line
+    }
+    // 1 pot is unchanged from before (one pill)
+    expect(zones[0]!.width).toBeLessThanOrEqual(116);
+  });
+
+  it('wraps into rows when the pills do not fit', () => {
+    expect(potRowSize(4, 1000).rows).toBe(1);
+    const narrow = potRowSize(4, 220);
+    expect(narrow.rows).toBeGreaterThan(1);
+    expect(narrow.width).toBeLessThanOrEqual(220);
+    expect(narrow.height).toBeGreaterThan(potRowSize(4, 1000).height);
   });
 });
 

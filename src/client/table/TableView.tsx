@@ -3,7 +3,7 @@ import { formatChips } from '../../shared/format';
 import type { RoomView } from '../../shared/types';
 import { BirdMascot } from '../components/Logo';
 import { winningCards, winningsByPlayer } from '../lib/describe';
-import { eligibleCount, isGameOver, myPlayer, nameResolver, playerById, reservedSeats, seatsTaken } from '../lib/gameState';
+import { eligibleCount, isGameOver, isStalled, myPlayer, nameResolver, playerById, reservedSeats, seatsTaken } from '../lib/gameState';
 import { useElementSize } from '../lib/hooks';
 import {
   boardGeometry,
@@ -11,6 +11,7 @@ import {
   computeTrack,
   fitSeatSize,
   heroBottomMargin,
+  potPillCount,
   resultLineMaxWidth,
   SEAT_ASPECT,
   type Point,
@@ -33,6 +34,7 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
   const count = room.seats.length;
   const bottomSeat = me?.seat ?? 0;
   const hand = room.hand;
+  const potPills = Math.max(1, potPillCount(hand));
 
   const geo = useMemo(() => {
     const { width, height } = size;
@@ -42,7 +44,7 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
     const seatHeight = Math.round(seatWidth * SEAT_ASPECT);
     const bottomMargin = heroMode ? heroBottomMargin(seatHeight) : undefined;
     const track = computeTrack({ width, height, seatWidth, seatHeight, bottomMargin });
-    const { rail, cw, avoid, result } = boardGeometry(track, seatWidth);
+    const { rail, cw, avoid, result } = boardGeometry(track, seatWidth, potPills);
     const layout = computeLayout({
       count,
       bottomSeat,
@@ -57,7 +59,7 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
       dealerAvoid: [result],
     });
     return { layout, seatWidth, seatHeight, rail, cw, track, width, height };
-  }, [size, count, bottomSeat, heroMode]);
+  }, [size, count, bottomSeat, heroMode, potPills]);
 
   const nameOf = useMemo(() => nameResolver(room), [room]);
   const won = useMemo(
@@ -235,6 +237,9 @@ function CenterMessage({ room, x, y, gameOver }: { room: RoomView; x: number; y:
   } else if (room.status === 'paused') {
     title = 'Paused';
     sub = 'The host paused the game';
+  } else if (isStalled(room)) {
+    title = 'Waiting for players';
+    sub = 'Need 2 players with chips to deal';
   } else {
     title = 'Shuffling…';
     sub = 'Next hand coming up';

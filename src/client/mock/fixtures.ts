@@ -703,6 +703,76 @@ function withMenu(base: string, tab: AppState['ui']['menuTab']): Scenario {
   };
 }
 
+/** 10-seat table where Carol (p3) busted and asked to buy back in; 9 voters. */
+function tenSeatVote(now: number, myVote: 'yes' | null): MockState {
+  const base = SCENARIOS['ten-seats']!(now);
+  const r = structuredClone(base.room!);
+  const carol = r.players.find((p) => p.id === 'p3')!;
+  Object.assign(carol, { stack: 0, busted: true, inHand: false, folded: false, hasCards: false, lastAction: null });
+  const voters = r.players.filter((p) => p.id !== 'p3');
+  const vote: BuyBackVoteView = {
+    id: 'v10',
+    requesterId: 'p3',
+    requesterName: 'Carol',
+    amount: 2000,
+    createdAt: now - 12_000,
+    deadline: now + 108_000,
+    votes: Object.fromEntries(voters.map((p, i) => [p.id, p.id === ME ? myVote : i % 3 === 1 ? 'yes' : null])),
+    status: 'pending',
+    resolvedReason: null,
+    resolvedAt: null,
+  };
+  r.settings.buyBackVoteSec = 120;
+  r.buyBackVotes = [vote];
+  r.me.votesAwaitingMe = myVote === null ? ['v10'] : [];
+  return { ...base, room: r };
+}
+
+// a 10-seat table: 9 voters, and I still have to vote / already voted
+SCENARIOS['buyback-vote-voter-10'] = (now) => tenSeatVote(now, null);
+SCENARIOS['ten-seats-vote'] = (now) => tenSeatVote(now, 'yes');
+
+// flop with two side pots (three all-in stacks) while someone decides whether to call
+SCENARIOS['flop-side-pots'] = (now) => {
+  const players = [
+    inHand(0, 0, { stack: 1760 }),
+    inHand(1, 1, { stack: 0, allIn: true, lastAction: { type: 'allin', amount: 900 } }),
+    inHand(2, 2, { stack: 2010, bet: 1400, lastAction: { type: 'raise', amount: 1400 } }),
+    inHand(3, 3, { stack: 0, allIn: true, lastAction: { type: 'allin', amount: 1250 } }),
+    inHand(4, 4, { stack: 1460, folded: true, hasCards: false, lastAction: { type: 'fold', amount: 0 } }),
+    player(5, { seat: 5, stack: 2140, sittingOut: true }),
+  ];
+  return tableState(
+    room({
+      now,
+      players,
+      settings: { maxPlayers: 6 },
+      hand: hand(now, {
+        handNumber: 9,
+        street: 'flop',
+        board: cards('Ah', '7c', '2d'),
+        pots: [
+          { amount: 3600, eligiblePlayerIds: ['p0', 'p1', 'p2', 'p3'] },
+          { amount: 1250, eligiblePlayerIds: ['p0', 'p2', 'p3'] },
+          { amount: 900, eligiblePlayerIds: ['p0', 'p2'] },
+        ],
+        totalPot: 7150,
+        dealerSeat: 3,
+        smallBlindSeat: 4,
+        bigBlindSeat: 0,
+        currentBet: 1400,
+        minRaiseTo: 2800,
+        toActPlayerId: 'p0',
+        turnDeadline: now + 21_000,
+      }),
+      me: {
+        holeCards: cards('As', 'Qs'),
+        legal: legal({ canCheck: false, canCall: true, callAmount: 1400, isBet: false, minRaiseTo: 2800, maxRaiseTo: 1760, currentBet: 1400, stack: 1760, pot: 7150 }),
+      },
+    }),
+  );
+};
+
 SCENARIOS['menu-players'] = withMenu('seat-request', 'players');
 SCENARIOS['menu-log'] = withMenu('preflop-my-turn', 'log');
 SCENARIOS['menu-chat'] = withMenu('preflop-my-turn', 'chat');

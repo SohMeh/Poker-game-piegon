@@ -148,8 +148,21 @@ const CHAT_LIMIT = 200;
 const LOG_LIMIT = 600;
 const POP_MS = 4500;
 
+/** Full history right after (re)joining: replaces whatever was shown, including unread counts. */
 export function setHistory(chat: ChatMessage[], log: LogEntry[]): void {
-  set({ chat: chat.slice(-CHAT_LIMIT), log: dedupeLog(log).slice(-LOG_LIMIT) });
+  const s = get();
+  // a re-join of the same room keeps its unread count; messages that are not part of this room's
+  // history (e.g. from a room that was attached before) do not count
+  const known = new Set(chat.map((m) => m.id));
+  const me = s.room?.me.playerId;
+  const countable = s.chat.filter((m) => known.has(m.id) && !m.system && m.playerId !== me).length;
+  const stillUnread = Math.min(s.unreadChat, countable);
+  set({
+    chat: chat.slice(-CHAT_LIMIT),
+    log: dedupeLog(log).slice(-LOG_LIMIT),
+    unreadChat: stillUnread,
+    chatPops: s.chatPops.filter((m) => known.has(m.id)),
+  });
 }
 
 export function pushChat(m: ChatMessage): void {

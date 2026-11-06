@@ -51,6 +51,11 @@ export const TIMING = {
   resolvedVoteVisibleMs: 6_000,
   /** empty / idle rooms are deleted after this */
   roomIdleTtlMs: 6 * 60 * 60 * 1000,
+  /**
+   * An abandoned table (never dealt a hand, nobody but its creator ever joined) is deleted after
+   * this long with nobody connected, so throwaway tables cannot pile up.
+   */
+  abandonedRoomIdleTtlMs: 30 * 60 * 1000,
   /** consecutive shot-clock timeouts before a player is auto sat out */
   maxConsecutiveTimeouts: 2,
   /**
@@ -76,10 +81,16 @@ export const AVATAR_COLORS = [
 ] as const;
 
 /**
- * room:join error for a stored token the room no longer knows (kicked, or the record was pruned).
+ * room:join error for a stored token the room no longer knows (the record was pruned).
  * Only this error makes the client forget its session; any other join error keeps it.
  */
 export const SESSION_EXPIRED_ERROR = 'Your session for this room has expired — enter a name to join again';
+
+/**
+ * room:join error for a token the host removed from the table. The device stays removed: it
+ * cannot come back as a "new" player (with a fresh buy-in) from the same browser.
+ */
+export const KICKED_ERROR = 'The host removed you from this table';
 
 /** Room code alphabet: no 0/O/1/I/L to avoid confusion when read aloud. */
 export const ROOM_ID_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

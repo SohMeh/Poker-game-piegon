@@ -3,7 +3,7 @@ import { formatChips } from '../../shared/format';
 import type { LegalActions, PlayerAction, RoomView } from '../../shared/types';
 import { IconMinus, IconPlus } from '../components/Icons';
 import { amountToCall, myPlayer, playerById } from '../lib/gameState';
-import type { PreActionKind } from '../lib/preActions';
+import { armPreAction, type PreActionKind } from '../lib/preActions';
 import {
   callIsAllIn,
   clampRaise,
@@ -203,11 +203,13 @@ export function PreActions({ room }: { room: RoomView }) {
   const me = myPlayer(room)!;
   const hand = room.hand!;
   const pre = useStore((s) => s.preAction);
-  const toCall = amountToCall(room, me);
+  // while the next street is dealt, nothing is owed on it yet
+  const toCall = hand.phase === 'betting' ? amountToCall(room, me) : 0;
   const actor = playerById(room, hand.toActPlayerId);
   const arm = (kind: PreActionKind) => {
     if (pre?.kind === kind) setPreAction(null);
-    else setPreAction({ kind, handNumber: hand.handNumber, street: hand.street, toCall });
+    // during the "Dealing…" pause the hand still shows the finished street: arm for the next one
+    else setPreAction(armPreAction(kind, hand, toCall));
   };
   const options: { kind: PreActionKind; label: string }[] = [
     { kind: 'checkFold', label: 'Check/Fold' },

@@ -5,7 +5,7 @@ import type { RoomView } from '../../shared/types';
 import { winningsByPlayer } from '../lib/describe';
 import { amountToCall, myPlayer } from '../lib/gameState';
 import { vibrate } from '../lib/haptics';
-import { preActionStale, resolvePreAction } from '../lib/preActions';
+import { preActionApplies, preActionStale, resolvePreAction } from '../lib/preActions';
 import { sfx } from '../lib/sound';
 import { flashTitle, setBaseTitle, stopTitleFlash } from '../lib/titleFlash';
 import { actions } from '../net/actions';
@@ -38,7 +38,7 @@ export function useGameEffects(room: RoomView): void {
     const pre = useStore.getState().preAction;
     if (turnStarted) {
       let auto = null;
-      if (pre && hand && pre.handNumber === hand.handNumber && pre.street === hand.street) {
+      if (pre && hand && preActionApplies(pre, hand.handNumber, hand.street)) {
         auto = resolvePreAction(pre, room.me.legal!);
       }
       if (pre) setPreAction(null);
@@ -54,6 +54,9 @@ export function useGameEffects(room: RoomView): void {
       const toCall = amountToCall(room, me);
       if (!hand || !me || !me.inHand || me.folded || me.allIn || preActionStale(pre, hand.handNumber, hand.street, toCall)) {
         setPreAction(null);
+      } else if (pre.nextStreet && pre.street !== hand.street) {
+        // the street it was armed for has arrived: from now on it is an ordinary toggle for it
+        setPreAction({ ...pre, street: hand.street, nextStreet: false });
       }
     }
     if (turnEnded) {

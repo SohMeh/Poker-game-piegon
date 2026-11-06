@@ -191,6 +191,11 @@ export interface LogEntry {
   ts: number;
   kind: LogKind;
   text: string;
+  /**
+   * Which game of this room the entry belongs to (1 = the first, +1 per rematch). Hand numbers
+   * restart after a rematch, so (game, handNumber) identifies a hand. Absent from older servers.
+   */
+  game?: number;
 }
 
 export interface MeView {

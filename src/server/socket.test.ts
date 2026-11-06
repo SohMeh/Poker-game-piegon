@@ -10,7 +10,9 @@ import type {
   RoomView,
   ServerToClientEvents,
 } from '../shared';
+import { KICKED_ERROR } from '../shared';
 import { createAppServer, type AppServerHandle } from './app';
+import { addressKey, clientAddress, WindowLimiter } from './socket';
 import { deckFor } from './room/test-utils';
 
 let server: AppServerHandle;
@@ -189,7 +191,9 @@ describe('socket integration', () => {
     expect(await bob.ok('seat:take', { seat: 1 })).toEqual({ pending: false });
     expect(await carol.ok('seat:take', { seat: 2 })).toEqual({ pending: false });
     await alice.waitState((s) => s.seats.filter(Boolean).length === 3, 'three seated');
-    expect(alice.chats.map((c) => c.text)).toEqual(expect.arrayContaining(['Bob joined', 'Carol joined']));
+    expect(alice.logs.map((l) => l.text)).toEqual(expect.arrayContaining(['Bob joined', 'Carol joined']));
+    // spectators joining are logged, not announced in the chat (drive-by joins can't flood it)
+    expect(alice.chats.some((c) => c.text.endsWith('joined'))).toBe(false);
 
     const startErr = await bob.emit('host:start', {});
     expect(startErr).toEqual({ ok: false, error: 'Only the host can do that' });
@@ -418,5 +422,205 @@ describe('socket integration', () => {
     const back = await bob.ok<{ playerId: string }>('room:join', { roomId, token: tokens.bob });
     expect(back.playerId).toBe(ids.bob);
     await bob.waitState((s) => s.me.seat === null && s.ledger.find((r) => r.playerId === ids.bob)?.inRoom === true, 'bob back');
+  });
+});
+
+describe('limits that hold across sockets', () => {
+  let s2: AppServerHandle;
+  let url2: string;
+  const mine: ClientSocket<ServerToClientEvents, ClientToServerEvents>[] = [];
+
+  beforeAll(async () => {
+    s2 = createAppServer({
+      clientDir: null,
+      trustProxyHops: 1,
+      socketLimits: {
+        burst: 500,
+        perSecond: 500,
+        chatMessages: 5,
+        chatWindowMs: 5000,
+        createsPerWindow: 3,
+        createWindowMs: 60_000,
+        newPlayersPerMinute: 4,
+        seatChangesPerMinute: 4,
+        seatChangesPerAddressPerMinute: 6,
+      },
+      timing: { disconnectActGraceMs: 30_000 },
+    });
+    url2 = `http://127.0.0.1:${await s2.listen(0)}`;
+  });
+  afterAll(async () => {
+    for (const c of mine) c.close();
+    await s2.close();
+  });
+
+  /** A raw client claiming to come from `ip` (the test server trusts one proxy hop). */
+  async function client(ip = '203.0.113.7') {
+    const c = ioc(url2, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: { 'x-forwarded-for': ip } });
+    mine.push(c);
+    await new Promise<void>((r) => c.once('connect', () => r()));
+    const emit = <T,>(event: string, payload?: unknown) =>
+      new Promise<AckResponse<T>>((resolve) =>
+        (c.emit as unknown as (e: string, p: unknown, cb: (r: AckResponse<T>) => void) => void).call(c, event, payload, resolve),
+      );
+    return { c, emit };
+  }
+
+  it('room creation is limited per client address, not per connection', async () => {
+    const results: AckResponse<{ roomId: string }>[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { emit } = await client('198.51.100.1');
+      results.push(await emit('room:create', { name: `Spam ${i}` }));
+    }
+    expect(results.slice(0, 3).every((r) => r.ok)).toBe(true);
+    expect(results[3]).toEqual({ ok: false, error: 'You’re creating tables too fast — wait a few minutes' });
+    // spoofed entries to the left of the trusted hop do not buy a new budget
+    const spoof = await client('10.0.0.99, 198.51.100.1');
+    expect((await spoof.emit('room:create', { name: 'Spam' })).ok).toBe(false);
+    // somebody else is not affected
+    const other = await client('198.51.100.2');
+    expect((await other.emit('room:create', { name: 'Real host' })).ok).toBe(true);
+  });
+
+  it('chat rate limit is per player, shared by all of their tabs', async () => {
+    const host = await client('192.0.2.10');
+    const created = await host.emit<{ roomId: string; token: string }>('room:create', { name: 'Host' });
+    if (!created.ok) throw new Error(created.error);
+    const { roomId, token } = created.data;
+    const tabs = [host];
+    for (let i = 0; i < 2; i++) {
+      const tab = await client('192.0.2.10');
+      expect((await tab.emit('room:join', { roomId, token })).ok).toBe(true);
+      tabs.push(tab);
+    }
+    const results: AckResponse<unknown>[] = [];
+    for (let i = 0; i < 6; i++) results.push(await tabs[i % 3]!.emit('chat:send', { text: `m${i}` }));
+    expect(results.map((r) => r.ok)).toEqual([true, true, true, true, true, false]);
+    expect(results[5]).toEqual({ ok: false, error: 'You’re sending messages too fast — wait a moment' });
+  });
+
+  it('new identities from one address are limited per room; the chat history survives', async () => {
+    const host = await client('192.0.2.20');
+    const created = await host.emit<{ roomId: string }>('room:create', { name: 'Host' });
+    if (!created.ok) throw new Error(created.error);
+    const { roomId } = created.data;
+    await host.emit('chat:send', { text: 'real message' });
+    const results: AckResponse<{ token: string }>[] = [];
+    const flood = await client('192.0.2.99');
+    for (let i = 0; i < 8; i++) results.push(await flood.emit('room:join', { roomId, name: `you suck ${i}` }));
+    expect(results.filter((r) => r.ok)).toHaveLength(4);
+    expect(results.at(-1)).toEqual({ ok: false, error: 'Too many people joined from your network — wait a minute' });
+    // a known token (reconnect) is never limited
+    const first = results[0]!;
+    if (!first.ok) throw new Error('first join failed');
+    expect((await flood.emit('room:join', { roomId, token: first.data.token })).ok).toBe(true);
+    const room = s2.rooms.get(roomId)!;
+    expect(room.history().chat.map((m) => m.text)).toEqual(['real message']);
+    // a friend on another network can still join
+    const friend = await client('192.0.2.21');
+    expect((await friend.emit('room:join', { roomId, name: 'Friend' })).ok).toBe(true);
+  });
+
+  it('seat and name changes are limited per player and per address, so the hand log cannot be flooded', async () => {
+    const host = await client('192.0.2.50');
+    const created = await host.emit<{ roomId: string }>('room:create', { name: 'Host' });
+    if (!created.ok) throw new Error(created.error);
+    const { roomId } = created.data;
+    const a = await client('192.0.2.51');
+    expect((await a.emit('room:join', { roomId, name: 'Flip' })).ok).toBe(true);
+    const flips: boolean[] = [];
+    for (let i = 0; i < 5; i++) flips.push((await a.emit(i % 2 ? 'seat:leave' : 'seat:take', { seat: 3 })).ok);
+    expect(flips).toEqual([true, true, true, true, false]);
+    expect(await a.emit('player:rename', { name: 'Flop' })).toEqual({ ok: false, error: 'Slow down a little — too many changes' });
+    // a second identity from the same address shares the address budget (6): 2 more changes
+    const b = await client('192.0.2.51');
+    expect((await b.emit('room:join', { roomId, name: 'Flap' })).ok).toBe(true);
+    expect((await b.emit('player:rename', { name: 'Flap 1' })).ok).toBe(true);
+    expect((await b.emit('player:rename', { name: 'Flap 2' })).ok).toBe(true);
+    expect((await b.emit('player:rename', { name: 'Flap 3' })).ok).toBe(false);
+    // someone else at the table is unaffected
+    expect((await host.emit('player:rename', { name: 'Hostess' })).ok).toBe(true);
+  });
+
+  it('a kicked device gets a distinct error, even when it also sends a name', async () => {
+    const host = await client('192.0.2.30');
+    const created = await host.emit<{ roomId: string }>('room:create', { name: 'Host' });
+    if (!created.ok) throw new Error(created.error);
+    const { roomId } = created.data;
+    const bob = await client('192.0.2.31');
+    const j = await bob.emit<{ token: string; playerId: string }>('room:join', { roomId, name: 'Bob' });
+    if (!j.ok) throw new Error(j.error);
+    expect((await host.emit('host:kick', { playerId: j.data.playerId })).ok).toBe(true);
+    expect(await bob.emit('room:join', { roomId, token: j.data.token })).toEqual({ ok: false, error: KICKED_ERROR });
+    expect(await bob.emit('room:join', { roomId, token: j.data.token, name: 'Bobby' })).toEqual({ ok: false, error: KICKED_ERROR });
+  });
+
+  it('room:detach keeps the seat but counts the player as away (auto-act grace, host hand-over)', async () => {
+    const host = await client('192.0.2.40');
+    const created = await host.emit<{ roomId: string; playerId: string }>('room:create', {
+      name: 'Host',
+      settings: { turnTimeSec: 0 },
+    });
+    if (!created.ok) throw new Error(created.error);
+    const { roomId, playerId: hostId } = created.data;
+    const bob = await client('192.0.2.41');
+    const states: RoomView[] = [];
+    bob.c.on('state', (s) => states.push(s));
+    const j = await bob.emit<{ playerId: string }>('room:join', { roomId, name: 'Bob' });
+    if (!j.ok) throw new Error(j.error);
+    expect((await bob.emit('seat:take', { seat: 1 })).ok).toBe(true);
+    expect((await host.emit('host:start', {})).ok).toBe(true);
+    // heads-up preflop: the button (small blind) acts first; make it the host's turn
+    await until(() => states.at(-1)?.hand?.handNumber === 1, 3000, 'hand 1');
+    if (states.at(-1)!.hand!.toActPlayerId !== hostId) {
+      expect((await bob.emit('game:action', { type: 'call' })).ok).toBe(true);
+    }
+    await until(() => states.at(-1)?.hand?.toActPlayerId === hostId, 3000, 'host to act');
+    expect(states.at(-1)!.hand!.turnDeadline).toBeNull(); // no shot clock, host connected
+    expect((await host.emit('room:detach', {})).ok).toBe(true);
+    const away = await until(
+      () => {
+        const s = states.at(-1);
+        return s && s.players.find((p) => p.id === hostId)?.connected === false && s.hand?.turnDeadline ? s : null;
+      },
+      3000,
+      'host away with a grace clock',
+    );
+    expect(away.hand!.turnDeadline! - away.serverTime).toBeGreaterThan(25_000);
+    expect(away.seats[0]).toBe(hostId); // still seated
+    // the detached socket is no longer in the room
+    expect(await host.emit('chat:send', { text: 'hi' })).toEqual({ ok: false, error: 'Join a room first' });
+  });
+});
+
+describe('WindowLimiter', () => {
+  it('counts hits per key inside a sliding window and forgets idle keys', () => {
+    const l = new WindowLimiter(2, 1000);
+    expect([l.take('a', 0), l.take('a', 10), l.take('a', 20), l.take('b', 20)]).toEqual([true, true, false, true]);
+    expect(l.take('a', 1000)).toBe(true); // the first hit left the window
+    expect(l.allows('a', 1005)).toBe(false);
+    l.prune(5000);
+    expect(l.allows('a', 5000)).toBe(true);
+    l.deleteWhere((k) => k === 'b');
+    expect(l.take('b', 5001)).toBe(true);
+  });
+});
+
+describe('client address', () => {
+  it('normalizes IPv4, IPv4-mapped IPv6 and groups IPv6 by /64', () => {
+    expect(addressKey('::ffff:127.0.0.1')).toBe('127.0.0.1');
+    expect(addressKey('203.0.113.9')).toBe('203.0.113.9');
+    expect(addressKey('203.0.113.9:4567')).toBe('203.0.113.9');
+    expect(addressKey('2001:db8:1:2:aaaa::1')).toBe('2001:db8:1:2::/64');
+    expect(addressKey('2001:DB8:1:2:bbbb:cccc:dddd:eeee')).toBe('2001:db8:1:2::/64');
+    expect(addressKey('[2001:db8::1]')).toBe('2001:db8:0:0::/64');
+    expect(addressKey('::1')).toBe('0:0:0:0::/64');
+  });
+  it('uses the right-most trusted X-Forwarded-For hop, never client-controlled entries', () => {
+    const hs = (xff?: string) => ({ address: '10.1.1.1', headers: xff ? { 'x-forwarded-for': xff } : {} });
+    expect(clientAddress(hs('1.2.3.4'), 0)).toBe('10.1.1.1');
+    expect(clientAddress(hs('6.6.6.6, 1.2.3.4'), 1)).toBe('1.2.3.4');
+    expect(clientAddress(hs('6.6.6.6, 1.2.3.4, 172.16.0.1'), 2)).toBe('1.2.3.4');
+    expect(clientAddress(hs(), 1)).toBe('10.1.1.1');
   });
 });

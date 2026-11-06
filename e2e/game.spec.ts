@@ -258,7 +258,11 @@ test('capacity: with 2 seats a third phone can only spectate', async ({ browser 
   await bob.page.getByTestId('tab-settings').click();
   await bob.page.getByRole('button', { name: /Stand up/ }).click();
   await expect(eve.page.getByTestId('table-full')).toHaveCount(0);
+  // the game is under way, so a newcomer's first seat (a fresh buy-in) needs the host's OK
+  await expect(eve.page.getByText('The host approves new players')).toBeVisible();
   await eve.page.getByTestId('sit-down').click();
+  await expect(eve.page.getByTestId('pending-approval')).toBeVisible();
+  await host.page.getByTestId('seat-request').getByTestId('approve-seat').click();
   await expect(eve.page.getByTestId('hero')).toBeVisible();
   // Bob is now the one watching, and the table is full again
   await closeSheet(bob);

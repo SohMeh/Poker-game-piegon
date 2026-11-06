@@ -336,17 +336,70 @@ export interface BoardGeometry {
 
 const clampN = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Rail thickness, board card size and the board's no-bet zone for a track. */
-export function boardGeometry(track: Track, seatWidth?: number): BoardGeometry {
+/** Chips already collected into the pot(s) (excludes bets still in front of players). */
+export function potsCollected(hand: { pots: { amount: number }[] }): number {
+  return hand.pots.reduce((s, p) => s + p.amount, 0);
+}
+
+/** How many chips the pot row above the board shows: one pill per pot, plus "Total" when bets are out. */
+export function potPillCount(hand: { pots: { amount: number }[]; totalPot: number; phase: string } | null): number {
+  if (!hand || hand.phase === 'complete') return 0;
+  const pills = hand.pots.length > 0 ? hand.pots.length : hand.totalPot > 0 ? 1 : 0;
+  return pills + (hand.pots.length > 0 && hand.totalPot > potsCollected(hand) ? 1 : 0);
+}
+
+/** Approximate rendered widths of the pot row's chips (see Board / .pot-pill). */
+const POT_MAIN_W = 116;
+const POT_SIDE_W = 92;
+const POT_TOTAL_W = 84;
+/** The single "Pot 7,150 +2" chip used when the full row would not fit on one line. */
+export const POT_COMPACT_W = 150;
+const POT_ROW_H = 28;
+const POT_ROW_GAP = 4;
+
+/**
+ * True when the pot row (`pills` chips) does not fit on one line between the side seats: Board then
+ * shows one compact chip (total + number of side pots) that expands on tap.
+ */
+export function potRowCompact(pills: number, maxWidth: number): boolean {
+  return pills > 1 && potRowSize(pills, maxWidth).rows > 1;
+}
+
+/** Size of the (wrapping) pot row for `pills` chips when at most `maxWidth` wide. */
+export function potRowSize(pills: number, maxWidth: number, hasTotal = pills > 1): { width: number; height: number; rows: number } {
+  if (pills <= 0) return { width: 0, height: POT_ROW_H, rows: 1 };
+  const widths = Array.from({ length: pills }, (_, i) => (i === 0 ? POT_MAIN_W : hasTotal && i === pills - 1 ? POT_TOTAL_W : POT_SIDE_W));
+  let rows = 1;
+  let row = 0;
+  let widest = 0;
+  for (const w of widths) {
+    const next = row === 0 ? w : row + 6 + w;
+    if (next > maxWidth && row > 0) {
+      widest = Math.max(widest, row);
+      rows++;
+      row = w;
+    } else row = next;
+  }
+  widest = Math.min(maxWidth, Math.max(widest, row));
+  return { width: widest, height: rows * POT_ROW_H + (rows - 1) * POT_ROW_GAP, rows };
+}
+
+/**
+ * Rail thickness, board card size and the board's no-bet zone for a track. `potPills` is the
+ * number of chips in the pot row (side pots make it wider and, once it wraps, taller).
+ */
+export function boardGeometry(track: Track, seatWidth?: number, potPills = 1): BoardGeometry {
   const rail = clampN(Math.min(track.width, track.height) * 0.055, 10, 20);
   const cw = Math.round(clampN(Math.min((track.width - 2 * rail - 30) / 5.6, ((track.height - 2 * rail) * 0.28) / 1.4), 28, 64));
   const ch = cw * 1.4;
   const gap = Math.max(4, cw * 0.1);
   const boardW = 5 * cw + 4 * gap;
-  const potH = 28;
-  const potW = Math.min(boardW, 116);
-  // the result line is at most as wide as the gap between the side seats (see Board's maxWidth)
+  // the result line and the pot row are at most as wide as the gap between the side seats (Board's maxWidth)
   const resultMax = seatWidth ? resultLineMaxWidth(track, seatWidth) : track.width - 2 * rail;
+  const compact = potRowCompact(potPills, resultMax);
+  const pot = potRowSize(Math.max(1, potPills), resultMax);
+  const potH = compact ? POT_ROW_H : pot.height;
+  const potW = potPills <= 1 ? Math.min(boardW, POT_MAIN_W) : compact ? Math.min(POT_COMPACT_W, resultMax) : pot.width;
   const resultW = Math.min(boardW + 24, resultMax);
   return {
     rail,

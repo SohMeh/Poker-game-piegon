@@ -35,6 +35,12 @@ export interface ClientToServerEvents {
   'room:join': (p: JoinRoomPayload, ack: Ack<JoinRoomResult>) => void;
   /** Leave the room entirely (stack is frozen in the ledger; token can rejoin later). */
   'room:leave': (p: Empty, ack: Ack) => void;
+  /**
+   * This tab stopped showing the room (navigated home or to another room) without leaving it:
+   * the seat and stack are kept, and the player counts as disconnected (auto-act grace, host
+   * hand-over) until a tab re-joins with the token.
+   */
+  'room:detach': (p: Empty, ack: Ack) => void;
 
   'seat:take': (p: { seat: number }, ack: Ack<{ pending: boolean }>) => void;
   /** Stand up (become a spectator). Chips are kept and restored if you sit again. */

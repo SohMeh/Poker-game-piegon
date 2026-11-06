@@ -27,6 +27,13 @@ These are enforced by the server, not just the UI.
 1. **One buy-in.** Everyone who sits down gets exactly the table's buy-in, once. There are no
    top-ups and no free rebuys. Standing up or leaving keeps your stack: when you sit down again you
    come back with the same chips (or with nothing, if you were busted).
+   - The host can change the buy-in until the first hand is dealt (and again after a rematch);
+     everyone already seated then moves to the new amount, so the table always starts even.
+   - Once the game is under way, a newcomer's first seat (which comes with a fresh buy-in) needs
+     the host's OK, even with *Approve players before they sit* off. A busted player can't slip
+     back in under a new name without anyone noticing.
+   - A phone the host kicked stays removed: reopening the link shows "Removed from the table"
+     instead of a fresh join form.
 2. **Buying back in needs a unanimous yes.** A seated player with 0 chips can ask to buy back in
    for the same amount as the buy-in. Every *other* seated player votes:
    - one **No** rejects the request immediately,
@@ -40,7 +47,9 @@ These are enforced by the server, not just the UI.
    that newcomers can watch as spectators and sit as soon as a seat opens.
 
 The ledger always shows each player's buy-ins, current chips and net result, and the chips on the
-table always add up to the total bought in.
+table always add up to the total bought in. The game is over (🏆) only when one seated player owns
+every chip still in play: someone who stood up or left with chips can still sit back down, so until
+then the table just waits for players.
 
 ## Features
 
@@ -53,7 +62,8 @@ table always add up to the total bought in.
   and approval setting, approve or deny seat requests, kick players, hand the host role to
   someone else, and start a rematch with a fresh single buy-in for everyone. If the host's phone
   stays disconnected for 90 seconds while others are playing, the host role passes to the next
-  connected player, so approvals never get stuck.
+  connected player, so approvals never get stuck. A phone that goes back to the home screen (or to
+  another table) counts as away too, even though the app is still open.
 - **Shot clock** (optional): a player who runs out of time checks or folds automatically. After two
   timeouts in a row they are sat out. Without a shot clock, a disconnected player still auto-acts
   after 30 seconds so the table never freezes.
@@ -117,6 +127,7 @@ npm start          # node dist/server/index.js
 | `PORT`       | `3001`           | HTTP and websocket port                                                  |
 | `HOST`       | all interfaces   | Interface to bind to                                                     |
 | `PUBLIC_URL` | the request host | Absolute origin for link-preview images, e.g. `https://poker.example.com` |
+| `TRUST_PROXY_HOPS` | `0` | Reverse proxies in front of the server that append to `X-Forwarded-For` (`1` on Render, set in `render.yaml`). Rate limits are per client address; with `0` the TCP peer is used, so behind a proxy everyone would share one budget |
 
 A single Node process serves the built client, the JSON API (`GET /api/health` and
 `GET /api/rooms/:code`) and the websockets.
@@ -139,7 +150,15 @@ The app is a single Node web service that needs websockets. Both files below are
 
 > **Rooms live in memory.** Run exactly **one** instance. A restart or redeploy ends every game in
 > progress, and players will see "Game not found". A room is deleted once nobody has been
-> connected to it for 6 hours.
+> connected to it for 6 hours (30 minutes for a table where nothing ever happened: no hand dealt
+> and nobody but its creator joined). The server holds at most 5,000 rooms; when it is full, the
+> room that has been empty longest makes way for a new one (tables that never dealt a hand go
+> first), so throwaway tables can never lock everyone out.
+
+Abuse limits are per client address, not per connection: 20 new tables per 10 minutes, and 10 new
+players per table per minute. Chat (5 messages per 5 seconds) is limited per player across all of
+their tabs, and seat / name changes per player and per address. Spectators joining and leaving go
+to the hand log only, so they can't flood the table chat.
 
 ## Testing
 
@@ -160,7 +179,15 @@ friend's device. The tests cover:
   (silence counts as no);
 - a full table, where the third phone can only watch;
 - reconnecting after a reload: same seat, stack and cards;
-- host approval for seat requests.
+- host approval for seat requests, and for a newcomer's first seat once the game has started;
+- a kicked phone staying removed when it reopens the link;
+- going back to the home screen marking you away (and keeping that table's chat out of Home);
+- blocked storage (iOS "Block All Cookies"): the creator lands on the table and a guest survives a
+  dropped connection;
+- changing the buy-in in the lobby moving everyone to the new amount;
+- small and landscape phones, with `?mock=` fixtures: buy-back vote buttons on screen, side pots
+  between the seats, the vote progress line off the seats, the landscape raise panel, and solid
+  button fills without `color-mix()` (iOS < 16.2).
 
 Screenshots of key moments are saved to `e2e/screenshots/e2e-*.png`. Set `E2E_PORT` to use another
 port. Chromium must already be installed for Playwright (`npx playwright install chromium`).
@@ -203,6 +230,8 @@ scripts/             dev runner, server bundler, icon renderer, mock screenshots
 ## Known limitations
 
 - There are no accounts. A phone's identity at a table is a token stored in that browser. Someone could join
-  again from another browser (or a private tab) as a "new" player with a fresh buy-in. Hosts can turn
-  on *Approve players before they sit* and kick anyone who does that.
+  again from another browser (or a private tab) as a "new" player. Before the first hand that seat
+  comes with a buy-in like anyone else's; once the game is under way the host has to approve it.
+  Hosts can also turn on *Approve players before they sit* from the start, and kick anyone who
+  abuses it.
 - Game state is in memory, as described in Deploying above.

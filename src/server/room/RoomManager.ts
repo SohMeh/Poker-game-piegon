@@ -20,6 +20,7 @@ export class RoomManager {
   private readonly opts: RoomManagerOptions;
   private readonly now: () => number;
   private readonly ttlMs: number;
+  private readonly abandonedTtlMs: number;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   /** Called whenever any room changes (wired by the socket layer). */
   onRoomChange: ((room: Room) => void) | null = null;
@@ -30,12 +31,20 @@ export class RoomManager {
     this.opts = opts;
     this.now = opts.now ?? (() => Date.now());
     this.ttlMs = opts.timing?.roomIdleTtlMs ?? TIMING.roomIdleTtlMs;
+    this.abandonedTtlMs = Math.min(this.ttlMs, opts.timing?.abandonedRoomIdleTtlMs ?? TIMING.abandonedRoomIdleTtlMs);
     this.sweepTimer = setInterval(() => this.sweep(), opts.sweepIntervalMs ?? 60_000);
     (this.sweepTimer as { unref?: () => void }).unref?.();
   }
 
+  /**
+   * Creates a room. At the room cap, idle rooms make way first (expired ones, then the one that
+   * has been empty longest, preferring tables that never dealt a hand); only when every room has
+   * somebody connected is the request refused. So throwaway tables can never lock everyone out.
+   */
   create(settings?: Partial<GameSettings>): Room {
-    if (this.rooms.size >= (this.opts.maxRooms ?? 5000)) {
+    const max = this.opts.maxRooms ?? 5000;
+    if (this.rooms.size >= max) this.sweep();
+    if (this.rooms.size >= max && !this.evictIdle()) {
       throw new RoomError('The server is busy right now — try again in a bit');
     }
     let id = newRoomId();
@@ -80,17 +89,35 @@ export class RoomManager {
     return [...this.rooms.values()];
   }
 
-  /** Deletes rooms that have had no connected socket for roomIdleTtlMs. Returns deleted ids. */
+  /**
+   * Deletes rooms that have had no connected socket for roomIdleTtlMs (abandonedRoomIdleTtlMs for
+   * a table where nothing ever happened). Returns deleted ids.
+   */
   sweep(): string[] {
     const now = this.now();
     const deleted: string[] = [];
     for (const room of [...this.rooms.values()]) {
-      if (room.connectedSockets() === 0 && room.emptySince !== null && now - room.emptySince >= this.ttlMs) {
+      if (room.connectedSockets() !== 0 || room.emptySince === null) continue;
+      const ttl = room.isAbandoned() ? this.abandonedTtlMs : this.ttlMs;
+      if (now - room.emptySince >= ttl) {
         this.delete(room.id);
         deleted.push(room.id);
       }
     }
     return deleted;
+  }
+
+  /** Deletes the idle room that should go first (see create). Returns false when none is idle. */
+  private evictIdle(): boolean {
+    let best: Room | null = null;
+    const rank = (r: Room) => (r.hasDealt() ? 1 : 0);
+    for (const room of this.rooms.values()) {
+      if (room.connectedSockets() !== 0 || room.emptySince === null) continue;
+      if (!best || rank(room) < rank(best) || (rank(room) === rank(best) && room.emptySince < best.emptySince!)) best = room;
+    }
+    if (!best) return false;
+    this.delete(best.id);
+    return true;
   }
 
   close(): void {

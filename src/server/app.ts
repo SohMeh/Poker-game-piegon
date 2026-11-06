@@ -26,6 +26,8 @@ export interface AppServerOptions {
    * (og:image, og:url). Defaults to the request's protocol + Host header.
    */
   publicUrl?: string | null;
+  /** Trusted reverse-proxy hops for the client address used by rate limits (see SocketOptions). */
+  trustProxyHops?: number;
 }
 
 export interface AppServerHandle {
@@ -59,26 +61,30 @@ const META_TAGS: { attr: 'property' | 'name'; key: string; field: 'title' | 'des
   { attr: 'name', key: 'description', field: 'description' },
 ];
 
-/** Replaces (or inserts) <title>, og:*, twitter:* and description meta tags. Values are raw text. */
+/**
+ * Replaces (or inserts) <title>, og:*, twitter:* and description meta tags. Values are raw text.
+ * Every String.replace below takes a function, so `$&`, `` $` `` and `$'` in user text (a host
+ * named "$`") stay literal instead of splicing parts of the page back in.
+ */
 export function injectMeta(html: string, meta: { title: string; description: string }): string {
   const title = escapeHtml(meta.title);
   const desc = escapeHtml(meta.description);
   const inserts: string[] = [];
   let out = html;
-  if (/<title>[\s\S]*?<\/title>/i.test(out)) out = out.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  if (/<title>[\s\S]*?<\/title>/i.test(out)) out = out.replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${title}</title>`);
   else inserts.push(`<title>${title}</title>`);
   for (const tag of META_TAGS) {
     const value = tag.field === 'title' ? title : desc;
     const re = new RegExp(`<meta\\s+[^>]*${tag.attr}=["']${tag.key.replace(':', '\\:')}["'][^>]*>`, 'i');
     const replacement = `<meta ${tag.attr}="${tag.key}" content="${value}" />`;
-    if (re.test(out)) out = out.replace(re, replacement);
+    if (re.test(out)) out = out.replace(re, () => replacement);
     else inserts.push(replacement);
   }
   if (!/<meta\s+[^>]*property=["']og:type["']/i.test(out)) inserts.push('<meta property="og:type" content="website" />');
   if (!/<meta\s+[^>]*name=["']twitter:card["']/i.test(out)) inserts.push('<meta name="twitter:card" content="summary" />');
   if (inserts.length) {
     const block = inserts.map((t) => `    ${t}\n`).join('');
-    out = /<\/head>/i.test(out) ? out.replace(/<\/head>/i, `${block}  </head>`) : block + out;
+    out = /<\/head>/i.test(out) ? out.replace(/<\/head>/i, () => `${block}  </head>`) : block + out;
   }
   return out;
 }
@@ -95,8 +101,8 @@ export function absolutizeMeta(html: string, origin: string, pagePath: string): 
   );
   const ogUrl = `<meta property="og:url" content="${escapeHtml(base + pagePath)}" />`;
   const re = /<meta\s+[^>]*property=["']og:url["'][^>]*>/i;
-  if (re.test(out)) out = out.replace(re, ogUrl);
-  else if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, `    ${ogUrl}\n  </head>`);
+  if (re.test(out)) out = out.replace(re, () => ogUrl);
+  else if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, () => `    ${ogUrl}\n  </head>`);
   return out;
 }
 
@@ -119,7 +125,7 @@ export function createAppServer(opts: AppServerOptions = {}): AppServerHandle {
     pingTimeout: 25_000,
   });
   const rooms = new RoomManager({ timing: opts.timing, deckFactory: opts.deckFactory, rand: opts.rand });
-  const sockets = registerSocketHandlers(io, rooms, opts.socketLimits);
+  const sockets = registerSocketHandlers(io, rooms, opts.socketLimits, { trustProxyHops: opts.trustProxyHops ?? 0 });
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
