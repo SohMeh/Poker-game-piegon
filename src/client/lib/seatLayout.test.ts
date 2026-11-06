@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boardGeometry,
   boxesOverlap,
+  computeTrack,
   computeLayout,
   inwardNormal,
   pushOutOfRect,
   fitSeatSize,
+  heroBottomMargin,
   MIN_SEAT_WIDTH,
   stadiumPerimeter,
   stadiumPoint,
@@ -118,8 +121,116 @@ describe('computeLayout', () => {
     }
   }
 
+  for (const vp of viewports) {
+    for (let count = 2; count <= 10; count++) {
+      it(`hero mode (my seat below the table): ${count} seats at ${vp.name}`, () => {
+        const size = fitSeatSize(vp.width, vp.height, count, { heroBottom: true });
+        const l = computeLayout({
+          count,
+          bottomSeat: 3 % count,
+          width: vp.width,
+          height: vp.height,
+          ...size,
+          bottomMargin: heroBottomMargin(size.seatHeight),
+        });
+        const visible = l.spots.filter((s) => s.relative !== 0);
+        for (const s of visible) {
+          expect(s.pos.y + size.seatHeight / 2).toBeLessThanOrEqual(vp.height + 1e-6);
+          expect(s.pos.x - size.seatWidth / 2).toBeGreaterThanOrEqual(-1e-6);
+        }
+        for (let i = 0; i < visible.length; i++) {
+          for (let j = i + 1; j < visible.length; j++) {
+            expect(boxesOverlap(visible[i]!.pos, visible[j]!.pos, size.seatWidth, size.seatHeight)).toBe(false);
+          }
+        }
+      });
+    }
+  }
+
+  // Bets on 320px-wide phones with 8+ seats (and 10 seats in landscape) may touch: too little felt.
+  const cramped = (name: string, count: number) => (name.startsWith('320') && count >= 8) || (name.startsWith('844') && count >= 10);
+  for (const vp of viewports) {
+    for (const count of [2, 3, 4, 5, 6, 7, 8, 9, 10].filter((c) => !cramped(vp.name, c))) {
+      it(`bets do not collide with each other or with seats: ${count} seats at ${vp.name}`, () => {
+        const size = fitSeatSize(vp.width, vp.height, count, { heroBottom: true });
+        const betSize = { width: 58, height: 24 };
+        const bottomMargin = heroBottomMargin(size.seatHeight);
+        const track = computeTrack({ width: vp.width, height: vp.height, ...size, bottomMargin });
+        const { avoid } = boardGeometry(track);
+        const l = computeLayout({
+          count,
+          bottomSeat: 0,
+          width: vp.width,
+          height: vp.height,
+          ...size,
+          bottomMargin,
+          betSize,
+          avoid,
+        });
+        const hit = (a: { x: number; y: number }, b: { x: number; y: number }, w: number, h: number) =>
+          Math.abs(a.x - b.x) < w - 0.5 && Math.abs(a.y - b.y) < h - 0.5;
+        for (let i = 0; i < l.spots.length; i++) {
+          for (let j = i + 1; j < l.spots.length; j++) {
+            expect(hit(l.spots[i]!.bet, l.spots[j]!.bet, betSize.width, betSize.height)).toBe(false);
+          }
+          const b = l.spots[i]!.bet;
+          for (const z of avoid.slice(0, 1)) {
+            const inAvoid =
+              Math.abs(b.x - (z.x + z.width / 2)) < (z.width + betSize.width) / 2 - 0.5 &&
+              Math.abs(b.y - (z.y + z.height / 2)) < (z.height + betSize.height) / 2 - 0.5;
+            expect(inAvoid).toBe(false);
+          }
+          for (const s of l.spots) {
+            if (s.relative === 0) continue;
+            expect(hit(l.spots[i]!.bet, s.pos, (betSize.width + size.seatWidth) / 2, (betSize.height + size.seatHeight) / 2)).toBe(false);
+          }
+        }
+      });
+    }
+  }
+
+  it('bets and dealer buttons sit outside their own seat box', () => {
+    const w = 80;
+    const h = 85;
+    const l = computeLayout({ count: 9, bottomSeat: 0, width: 390, height: 560, seatWidth: w, seatHeight: h, betSize: { width: 60, height: 26 } });
+    for (const s of l.spots) {
+      const betBox = { x: s.bet.x - 30, y: s.bet.y - 13, w: 60, h: 26 };
+      const seatBox = { x: s.pos.x - w / 2, y: s.pos.y - h / 2, w, h };
+      const overlap =
+        betBox.x < seatBox.x + seatBox.w && betBox.x + betBox.w > seatBox.x && betBox.y < seatBox.y + seatBox.h && betBox.y + betBox.h > seatBox.y;
+      expect(overlap).toBe(false);
+      const dd = Math.max(Math.abs(s.dealer.x - s.pos.x) - w / 2, Math.abs(s.dealer.y - s.pos.y) - h / 2);
+      expect(dd).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps the dealer button off the board and the hand-result line', () => {
+    for (const [width, height] of [
+      [390, 470],
+      [375, 380],
+      [390, 560],
+    ] as const) {
+      for (const count of [2, 3, 6, 9]) {
+        const fit = fitSeatSize(width, height, count, { heroBottom: true });
+        const seatWidth = Math.min(fit.seatWidth, 90);
+        const seatHeight = Math.round(seatWidth * 1.06);
+        const bottomMargin = heroBottomMargin(seatHeight);
+        const track = computeTrack({ width, height, seatWidth, seatHeight, bottomMargin });
+        const { avoid, result } = boardGeometry(track, seatWidth);
+        const l = computeLayout({ count, bottomSeat: 0, width, height, seatWidth, seatHeight, bottomMargin, avoid, dealerAvoid: [result] });
+        for (const s of l.spots) {
+          for (const z of [avoid[0]!, result]) {
+            const hit = Math.abs(s.dealer.x - (z.x + z.width / 2)) < (z.width + 26) / 2 && Math.abs(s.dealer.y - (z.y + z.height / 2)) < (z.height + 26) / 2;
+            expect(hit, `${width}x${height} ${count} seats, seat ${s.seat}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
   it('keeps bets out of the avoid rectangle', () => {
-    const avoid = { x: 80, y: 180, width: 230, height: 90 };
+    const zone = { x: 80, y: 180, width: 230, height: 90 };
+    const avoid = [zone];
     const betSize = { width: 56, height: 22 };
     const l = computeLayout({
       count: 9,
@@ -134,7 +245,7 @@ describe('computeLayout', () => {
     for (const s of l.spots) {
       const box = { x: s.bet.x - 28, y: s.bet.y - 11, w: 56, h: 22 };
       const overlap =
-        box.x < avoid.x + avoid.width && box.x + box.w > avoid.x && box.y < avoid.y + avoid.height && box.y + box.h > avoid.y;
+        box.x < zone.x + zone.width && box.x + box.w > zone.x && box.y < zone.y + zone.height && box.y + box.h > zone.y;
       expect(overlap).toBe(false);
     }
   });

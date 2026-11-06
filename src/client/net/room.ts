@@ -1,4 +1,5 @@
 // Connection lifecycle: routing, joining / re-joining rooms, and server event handlers.
+import { SESSION_EXPIRED_ERROR } from '../../shared/constants';
 import type { GameSettings, RoomView } from '../../shared/types';
 import { SkewTracker } from '../lib/clock';
 import { parsePath, roomPath, type Route } from '../lib/route';
@@ -101,13 +102,14 @@ async function joinWithToken(roomId: string, seq: number): Promise<void> {
   if (r.kind === 'notFound') {
     clearSession(roomId);
     set({ phase: 'notFound', room: null });
-  } else if (r.kind === 'ok') {
-    // the room exists but our token is no longer valid: join again as a new player
+  } else if (r.kind === 'ok' && res.error === SESSION_EXPIRED_ERROR) {
+    // the room exists but no longer knows our token: join again as a new player
     clearSession(roomId);
     set({ phase: 'needsName', summary: r.summary, room: null });
     toast('error', res.error);
   } else {
-    set({ phase: 'error', phaseError: res.error });
+    // anything else (room full, rate limit, server hiccup) is temporary: keep the seat's token
+    set({ phase: 'error', phaseError: res.error, room: null });
   }
 }
 
@@ -152,6 +154,37 @@ export async function leaveRoom(): Promise<void> {
   navigate('/');
 }
 
+const PROBE_TIMEOUT_MS = 4000;
+let probing = false;
+
+/**
+ * After a phone sleeps, the socket can still look connected while it is dead (until the ping
+ * timeout, ~45 s). On wake we re-join (idempotent: the server answers with fresh history + state)
+ * and force a reconnect when that gets no quick answer.
+ */
+async function probeConnection(): Promise<void> {
+  const { route, phase } = get();
+  if (probing || route.name !== 'room' || !route.valid || phase !== 'joined') return;
+  const session = loadSession(route.roomId);
+  if (!session) return;
+  probing = true;
+  try {
+    const seq = routeSeq;
+    const res = await emitAck('room:join', { roomId: route.roomId, token: session.token }, PROBE_TIMEOUT_MS);
+    if (seq !== routeSeq || res.ok) return;
+    const socket = getSocket();
+    if (res.error === TIMEOUT_ERROR || res.error === OFFLINE_ERROR) {
+      // the 'connect' handler re-joins once the new connection is up
+      socket.disconnect();
+      socket.connect();
+    } else {
+      await joinWithToken(route.roomId, seq);
+    }
+  } finally {
+    probing = false;
+  }
+}
+
 // ---------------------------------------------------------------- server events
 function handleState(view: RoomView): void {
   const s = get();
@@ -190,6 +223,7 @@ export function initNetwork(): void {
 
   const wake = () => {
     if (!socket.connected) socket.connect();
+    else void probeConnection();
   };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') wake();

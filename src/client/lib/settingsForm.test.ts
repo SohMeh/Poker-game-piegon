@@ -31,5 +31,7 @@ describe('validateSettings', () => {
     expect(parseIntInput('abc')).toBeNaN();
     expect(minSeatsAllowed([null, 'a', null, null, 'b', null])).toBe(5);
     expect(minSeatsAllowed([null, null, null])).toBe(2);
+    // a seat someone is waiting on host approval for also counts
+    expect(minSeatsAllowed([null, 'a', null, null, null, null, null], new Set([5]))).toBe(6);
   });
 });

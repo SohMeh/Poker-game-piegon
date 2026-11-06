@@ -38,10 +38,10 @@ export function FloatingCards({ room }: { room: RoomView }) {
         <VoteProgressCard key={v.id} vote={v} room={room} />
       ))}
       {pops.map((m) => (
-        <button key={m.id} type="button" className={`chat-pop ${m.system ? 'is-system' : ''}`} onClick={() => openMenu('chat')}>
+        <div key={m.id} className={`chat-pop ${m.system ? 'is-system' : ''}`} aria-hidden>
           {m.system ? null : <b>{m.name}</b>}
           <span>{m.text}</span>
-        </button>
+        </div>
       ))}
     </div>
   );

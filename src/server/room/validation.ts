@@ -7,7 +7,7 @@ import { formatChips, LIMITS, type GameSettings } from '../../shared';
 /** Trim, drop control / zero-width characters, collapse runs of whitespace. */
 export function normalizeName(raw: string): string {
   return raw
-    .replace(/[\u0000-\u001f\u007f-\u009f​-‏ -‮⁠-⁯﻿]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -15,7 +15,7 @@ export function normalizeName(raw: string): string {
 /** Trim and drop control characters (newlines are collapsed to spaces). */
 export function normalizeChat(raw: string): string {
   return raw
-    .replace(/[\u0000-\u001f\u007f-\u009f  ]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

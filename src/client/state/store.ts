@@ -161,7 +161,8 @@ export function pushChat(m: ChatMessage): void {
     chat: [...s.chat, m].slice(-CHAT_LIMIT),
     unreadChat: chatVisible || mine || m.system ? s.unreadChat : s.unreadChat + 1,
   });
-  if (!chatVisible) {
+  // system lines (joins, buy-backs...) already show up as cards / toasts / log entries
+  if (!chatVisible && !m.system) {
     set({ chatPops: [...get().chatPops, m].slice(-3) });
     setTimeout(() => set({ chatPops: get().chatPops.filter((c) => c.id !== m.id) }), POP_MS);
   }

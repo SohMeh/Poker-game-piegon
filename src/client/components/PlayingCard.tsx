@@ -34,7 +34,7 @@ export function PlayingCard({ card, size = 'md', dim, highlight, anim, delayMs, 
     .filter(Boolean)
     .join(' ');
   return (
-    <div className={cls} role="img" aria-label={label} style={delayMs ? { animationDelay: `${delayMs}ms` } : undefined}>
+    <div className={cls} data-rank={rank} role="img" aria-label={label} style={delayMs ? { animationDelay: `${delayMs}ms` } : undefined}>
       <span className="pcard-rank">{RANK_LABEL[rank]}</span>
       <span className="pcard-suit-sm">{SUIT_SYMBOL[suit]}</span>
       <span className="pcard-suit">{SUIT_SYMBOL[suit]}</span>

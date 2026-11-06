@@ -107,7 +107,7 @@ export function KickedScreen() {
     <div className="gate">
       <div className="card-panel gate-card" data-testid="kicked">
         <BirdMascot size={92} className="gate-mascot is-sad" />
-        <h1 className="gate-title">You left the table</h1>
+        <h1 className="gate-title">Removed from the table</h1>
         <p className="gate-summary">{reason ?? 'The host removed you from this game.'}</p>
         <a className="btn btn-purple btn-lg btn-block" href="/" onClick={goHome}>
           Back home

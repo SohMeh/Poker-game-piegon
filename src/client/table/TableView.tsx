@@ -5,13 +5,20 @@ import { BirdMascot } from '../components/Logo';
 import { winningCards, winningsByPlayer } from '../lib/describe';
 import { eligibleCount, isGameOver, myPlayer, nameResolver, playerById, reservedSeats, seatsTaken } from '../lib/gameState';
 import { useElementSize } from '../lib/hooks';
-import { computeLayout, computeTrack, fitSeatSize, SEAT_ASPECT, type Point } from '../lib/seatLayout';
+import {
+  boardGeometry,
+  computeLayout,
+  computeTrack,
+  fitSeatSize,
+  heroBottomMargin,
+  resultLineMaxWidth,
+  SEAT_ASPECT,
+  type Point,
+} from '../lib/seatLayout';
 import { actions } from '../net/actions';
 import { Board } from './Board';
 import { ChipStack } from './ChipStack';
 import { EmptySeat, Seat } from './Seat';
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 interface Flight {
   id: string;
@@ -30,21 +37,12 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
   const geo = useMemo(() => {
     const { width, height } = size;
     if (width < 50 || height < 50) return null;
-    const fit = fitSeatSize(width, height, count);
+    const fit = fitSeatSize(width, height, count, { heroBottom: heroMode });
     const seatWidth = Math.min(fit.seatWidth, 90);
     const seatHeight = Math.round(seatWidth * SEAT_ASPECT);
-    const track = computeTrack({ width, height, seatWidth, seatHeight });
-    const rail = clamp(Math.min(track.width, track.height) * 0.055, 10, 20);
-    const cw = Math.round(
-      clamp(Math.min((track.width - 2 * rail - 30) / 5.6, ((track.height - 2 * rail) * 0.3) / 1.4), 28, 64),
-    );
-    const ch = cw * 1.4;
-    const gap = Math.max(4, cw * 0.1);
-    const boardW = 5 * cw + 4 * gap;
-    const potH = 28;
-    const cx = width / 2;
-    const cy = height / 2;
-    const avoid = { x: cx - boardW / 2 - 4, y: cy - ch / 2 - potH - 8, width: boardW + 8, height: ch + potH + 14 };
+    const bottomMargin = heroMode ? heroBottomMargin(seatHeight) : undefined;
+    const track = computeTrack({ width, height, seatWidth, seatHeight, bottomMargin });
+    const { rail, cw, avoid, result } = boardGeometry(track, seatWidth);
     const layout = computeLayout({
       count,
       bottomSeat,
@@ -52,12 +50,14 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
       height,
       seatWidth,
       seatHeight,
-      betInset: Math.max(seatWidth, seatHeight) / 2 + 20,
-      betSize: { width: 60, height: 26 },
+      bottomMargin,
+      betGap: 4,
+      betSize: { width: 58, height: 24 },
       avoid,
+      dealerAvoid: [result],
     });
     return { layout, seatWidth, seatHeight, rail, cw, track, width, height };
-  }, [size, count, bottomSeat]);
+  }, [size, count, bottomSeat, heroMode]);
 
   const nameOf = useMemo(() => nameResolver(room), [room]);
   const won = useMemo(
@@ -134,7 +134,15 @@ export function TableView({ room, heroMode }: { room: RoomView; heroMode: boolea
           </div>
 
           {hand ? (
-            <Board hand={hand} cw={geo.cw} x={geo.layout.center.x} y={geo.layout.center.y} nameOf={nameOf} highlight={hl} />
+            <Board
+              hand={hand}
+              cw={geo.cw}
+              x={geo.layout.center.x}
+              y={geo.layout.center.y}
+              nameOf={nameOf}
+              highlight={hl}
+              maxWidth={resultLineMaxWidth(geo.track, geo.seatWidth)}
+            />
           ) : (
             <CenterMessage room={room} x={geo.layout.center.x} y={geo.layout.center.y} gameOver={gameOver} />
           )}
@@ -218,8 +226,8 @@ function CenterMessage({ room, x, y, gameOver }: { room: RoomView; x: number; y:
   let sub: string;
   if (gameOver) {
     const w = playerById(room, room.gameOverWinnerId);
-    title = w ? `${w.name} wins the game!` : 'Game over';
-    sub = 'Busted players can ask to buy back in';
+    title = w ? `🏆 ${w.name} wins!` : 'Game over';
+    sub = room.settings.allowBuyBack ? 'Buy-backs need everyone’s OK' : 'Thanks for playing';
   } else if (room.status === 'lobby') {
     const ready = eligibleCount(room);
     title = ready >= 2 ? 'Ready when you are' : 'Waiting for players';

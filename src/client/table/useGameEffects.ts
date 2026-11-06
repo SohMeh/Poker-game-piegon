@@ -1,19 +1,20 @@
-// Side effects driven by RoomView changes: sounds, haptics, title flash, pre-actions, vote toasts.
+// Side effects driven by RoomView changes: sounds, haptics, title flash and pre-actions.
+// (Seat approvals and buy-back results arrive as server notices -> toasts.)
 import { useEffect, useRef } from 'react';
 import type { RoomView } from '../../shared/types';
-import { voteOutcomeText, winningsByPlayer } from '../lib/describe';
-import { amountToCall, myPlayer, nameResolver } from '../lib/gameState';
+import { winningsByPlayer } from '../lib/describe';
+import { amountToCall, myPlayer } from '../lib/gameState';
 import { vibrate } from '../lib/haptics';
 import { preActionStale, resolvePreAction } from '../lib/preActions';
 import { sfx } from '../lib/sound';
 import { flashTitle, setBaseTitle, stopTitleFlash } from '../lib/titleFlash';
 import { actions } from '../net/actions';
-import { setPreAction, toast, useStore } from '../state/store';
+import { setPreAction, setUI, useStore } from '../state/store';
 
 export function useGameEffects(room: RoomView): void {
   const prevRef = useRef<RoomView | null>(null);
   const seenPending = useRef<Set<string>>(new Set());
-  const toasted = useRef<Set<string>>(new Set());
+  const resolvedSeen = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setBaseTitle(`Flock Poker · ${room.roomId}`);
@@ -55,7 +56,10 @@ export function useGameEffects(room: RoomView): void {
         setPreAction(null);
       }
     }
-    if (turnEnded) stopTitleFlash();
+    if (turnEnded) {
+      stopTitleFlash();
+      if (useStore.getState().ui.raiseOpen) setUI({ raiseOpen: false });
+    }
 
     // ---- table sounds
     if (hand && (!prevHand || hand.handNumber !== prevHand.handNumber)) {
@@ -79,27 +83,25 @@ export function useGameEffects(room: RoomView): void {
     if (newForMe.length && prev) {
       sfx.alert();
       vibrate([60, 40, 60]);
+      flashTitle('Buy-back vote!');
     }
-    const nameOf = nameResolver(room);
+    if (newForMe.length) {
+      // silence counts as "no": make sure the vote modal is not hidden behind a sheet
+      const ui = useStore.getState().ui;
+      if (ui.menuOpen || ui.inviteOpen) setUI({ menuOpen: false, inviteOpen: false });
+    } else if (!room.me.votesAwaitingMe.length && prev?.me.votesAwaitingMe.length && !room.me.legal) {
+      stopTitleFlash();
+    }
+    // Resolved votes are shown by the floating result card (others) and the busted panel (requester);
+    // the requester also gets a server notice. Only add a sound for my own approval.
     for (const v of room.buyBackVotes) {
       if (v.status === 'pending') {
         seenPending.current.add(v.id);
         continue;
       }
-      if (!seenPending.current.has(v.id) || toasted.current.has(v.id)) continue;
-      toasted.current.add(v.id);
-      const who = v.requesterId === room.me.playerId ? 'Your buy-back' : `${v.requesterName}’s buy-back`;
-      const text = `${who}: ${voteOutcomeText(v, nameOf)}`;
-      toast(v.status === 'approved' ? 'success' : 'info', text, 5000);
+      if (!seenPending.current.has(v.id) || resolvedSeen.current.has(v.id)) continue;
+      resolvedSeen.current.add(v.id);
       if (v.status === 'approved' && v.requesterId === room.me.playerId) sfx.win(false);
-    }
-
-    // ---- seat approved
-    const prevMe = prev ? myPlayer(prev) : undefined;
-    if (prevMe && prevMe.seat === null && prevMe.pendingSeat !== null && me && me.seat !== null) {
-      toast('success', `You’re in! Seat ${me.seat + 1}`);
-    } else if (prevMe && prevMe.pendingSeat !== null && me && me.seat === null && me.pendingSeat === null) {
-      toast('info', 'The host didn’t approve your seat this time');
     }
 
     // ---- game over

@@ -1,4 +1,5 @@
 import { msLeft } from '../lib/clock';
+import { useFrozenElapsed } from '../lib/hooks';
 import { useStore } from '../state/store';
 
 /**
@@ -19,8 +20,9 @@ export function CountdownRing({
   const r = size / 2 - stroke / 2;
   const c = 2 * Math.PI * r;
   const timed = deadline != null && durationMs != null && durationMs > 0;
-  const remaining = timed ? msLeft(deadline!, skew) : 0;
-  const elapsed = timed ? Math.max(0, durationMs! - remaining) : 0;
+  const key = timed ? `t${deadline}` : 'untimed';
+  // frozen per countdown: re-rendering must not shift the running animation (see useFrozenElapsed)
+  const elapsed = useFrozenElapsed(key, () => (timed ? durationMs! - msLeft(deadline!, skew) : 0));
   return (
     <svg
       className={`ring ${timed ? 'is-timed' : 'is-untimed'}`}
@@ -31,7 +33,7 @@ export function CountdownRing({
     >
       <circle className="ring-track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" />
       <circle
-        key={timed ? `t${deadline}` : 'untimed'}
+        key={key}
         className="ring-progress"
         cx={size / 2}
         cy={size / 2}
@@ -44,7 +46,7 @@ export function CountdownRing({
         style={
           timed
             ? ({
-                '--c': c,
+                '--c': `${c}px`,
                 '--dur': `${durationMs}ms`,
                 animationDuration: `${durationMs}ms`,
                 animationDelay: `-${elapsed}ms`,

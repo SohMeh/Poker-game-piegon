@@ -20,9 +20,12 @@ export function Sheet({
 }) {
   const id = useId();
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // mount-only: re-running on every parent render would steal focus from inputs inside the sheet
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') closeRef.current();
     };
     window.addEventListener('keydown', onKey);
     const prev = document.activeElement as HTMLElement | null;
@@ -31,7 +34,7 @@ export function Sheet({
       window.removeEventListener('keydown', onKey);
       prev?.focus?.({ preventScroll: true });
     };
-  }, [onClose]);
+  }, []);
   return (
     <>
       <div className="sheet-backdrop" onClick={onClose} aria-hidden />

@@ -2,11 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Flock Poker</title>
+    <meta name="description" content="No-Limit Hold’em for your group chat. One buy-in each — buying back in needs everyone’s OK. Tap the link to pull up a chair." />
+    <meta name="theme-color" content="#4423b4" />
+    <meta name="color-scheme" content="light" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Flock Poker" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Flock Poker" />
+    <meta property="og:title" content="Flock Poker — Hold’em for the group chat" />
+    <meta property="og:description" content="Pull up a chair — No-Limit Hold’em, tap to join. One buy-in each; buy-backs only if everyone agrees." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Pip the bird dealing cards on a green poker table" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Flock Poker — Hold’em for the group chat" />
+    <meta name="twitter:description" content="Pull up a chair — No-Limit Hold’em, tap to join." />
+    <meta name="twitter:image" content="/og-image.png" />
+    <style>
+      html,
+      body {
+        background: #24126a;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Flock Poker needs JavaScript to deal the cards.</noscript>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

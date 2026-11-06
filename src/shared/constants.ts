@@ -53,6 +53,11 @@ export const TIMING = {
   roomIdleTtlMs: 6 * 60 * 60 * 1000,
   /** consecutive shot-clock timeouts before a player is auto sat out */
   maxConsecutiveTimeouts: 2,
+  /**
+   * The host role moves to a connected player once the host has been disconnected this long
+   * while others are still at the table (a locked phone must not stall approvals or rematches).
+   */
+  hostAwayTransferMs: 90_000,
 } as const;
 
 export const AVATAR_COLORS = [
@@ -69,6 +74,12 @@ export const AVATAR_COLORS = [
   '#ff922b',
   '#a9e34b',
 ] as const;
+
+/**
+ * room:join error for a stored token the room no longer knows (kicked, or the record was pruned).
+ * Only this error makes the client forget its session; any other join error keeps it.
+ */
+export const SESSION_EXPIRED_ERROR = 'Your session for this room has expired — enter a name to join again';
 
 /** Room code alphabet: no 0/O/1/I/L to avoid confusion when read aloud. */
 export const ROOM_ID_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

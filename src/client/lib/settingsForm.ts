@@ -78,11 +78,15 @@ export function parseIntInput(raw: string): number {
   return Number(cleaned);
 }
 
-/** Lowest table size allowed given occupied seats (can't shrink below an occupied seat). */
-export function minSeatsAllowed(seats: (string | null)[]): number {
+/**
+ * Lowest table size allowed: the server refuses to shrink below an occupied seat or a seat
+ * someone is waiting on host approval for.
+ */
+export function minSeatsAllowed(seats: (string | null)[], reserved: Iterable<number> = []): number {
   let highest = -1;
   seats.forEach((s, i) => {
     if (s != null) highest = i;
   });
+  for (const r of reserved) highest = Math.max(highest, r);
   return Math.max(LIMITS.minSeats, highest + 1);
 }

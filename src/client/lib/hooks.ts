@@ -42,6 +42,19 @@ export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, {
   return [ref, size];
 }
 
+/**
+ * Elapsed time for a CSS countdown animation, computed ONCE per `key`.
+ * The countdowns (shot-clock ring, vote bar) start their CSS animation with a negative
+ * animation-delay equal to the time already elapsed. Changing animation-delay on a running
+ * animation re-times it instead of restarting it, so recomputing the delay on every re-render
+ * would count the elapsed time twice and make the bar drain too fast.
+ */
+export function useFrozenElapsed(key: string, compute: () => number): number {
+  const ref = useRef<{ key: string; value: number } | null>(null);
+  if (!ref.current || ref.current.key !== key) ref.current = { key, value: Math.max(0, compute()) };
+  return ref.current.value;
+}
+
 /** Previous value of something across renders. */
 export function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T | undefined>(undefined);

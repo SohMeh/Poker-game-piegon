@@ -22,7 +22,7 @@ export function TopBar({ room }: { room: RoomView }) {
       >
         <span className="room-code">{room.roomId}</span>
         <span className="room-invite">
-          <IconShare /> Invite
+          <IconShare /> <span className="room-invite-text">Invite</span>
         </span>
       </button>
       <div className="topbar-mid">

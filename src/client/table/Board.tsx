@@ -13,6 +13,7 @@ export function Board({
   y,
   nameOf,
   highlight,
+  maxWidth,
 }: {
   hand: HandView;
   cw: number;
@@ -20,6 +21,8 @@ export function Board({
   y: number;
   nameOf: (id: string) => string;
   highlight: Set<Card>;
+  /** Room for the result line between the side seats. */
+  maxWidth: number;
 }) {
   // Stagger the flip of cards that arrive together (the flop).
   const seen = useRef<{ hand: number; count: number }>({ hand: -1, count: 0 });
@@ -33,7 +36,7 @@ export function Board({
   const anyHl = complete && highlight.size > 0;
 
   return (
-    <div className="board" style={{ left: x, top: y, '--cw': `${cw}px` } as React.CSSProperties}>
+    <div className="board" style={{ left: x, top: y, '--cw': `${cw}px`, '--rw': `${Math.round(maxWidth)}px` } as React.CSSProperties}>
       {!complete ? (
         <div className="pots" aria-label="Pots">
           {hand.pots.length > 0 ? (

@@ -22,8 +22,14 @@ export function HeroStrip({ room }: { room: RoomView }) {
   const hl = complete ? winningCards(hand!.winners) : new Set();
   const folded = me.inHand && me.folded;
   const tag = seatTag(me, hand, room.started);
+  // no cards coming my way (busted / sitting out between hands): a slimmer strip leaves room for the table
+  const compact = !hole?.length && !me.inHand && (me.busted || me.sittingOut || (room.started && me.stack === 0));
   return (
-    <section className={`hero ${acting ? 'is-acting' : ''} ${won > 0 ? 'is-winner' : ''}`} aria-label="Your seat" data-testid="hero">
+    <section
+      className={`hero ${acting ? 'is-acting' : ''} ${won > 0 ? 'is-winner' : ''} ${compact ? 'is-compact' : ''}`}
+      aria-label="Your seat"
+      data-testid="hero"
+    >
       <div className="hero-id">
         <div className="hero-avatar">
           <Avatar name={me.name} color={me.color} size={46} />
@@ -52,7 +58,7 @@ export function HeroStrip({ room }: { room: RoomView }) {
               dim={folded}
             />
           ))
-        ) : (
+        ) : compact ? null : (
           <div className="hero-empty" aria-hidden>
             <span />
             <span />

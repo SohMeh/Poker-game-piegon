@@ -6,7 +6,7 @@ import { Avatar } from '../components/Avatar';
 import { msLeft, secondsLeft } from '../lib/clock';
 import { tallyVote, voteOutcomeText } from '../lib/describe';
 import { nameResolver, playerById } from '../lib/gameState';
-import { useServerNow } from '../lib/hooks';
+import { useFrozenElapsed, useServerNow } from '../lib/hooks';
 import { actions } from '../net/actions';
 import { useStore } from '../state/store';
 
@@ -14,7 +14,8 @@ function VoteTimer({ vote, compact }: { vote: BuyBackVoteView; compact?: boolean
   const now = useServerNow(250, vote.status === 'pending');
   const skew = useStore((s) => s.skewMs);
   const total = Math.max(1, vote.deadline - vote.createdAt);
-  const left = msLeft(vote.deadline, skew);
+  // frozen per vote: re-rendering every 250 ms must not shift the running animation
+  const elapsed = useFrozenElapsed(vote.id, () => total - msLeft(vote.deadline, skew));
   const secs = secondsLeft(vote.deadline, 0, now);
   return (
     <div className={`vote-timer ${compact ? 'is-compact' : ''} ${secs <= 5 ? 'is-low' : ''}`}>
@@ -26,7 +27,7 @@ function VoteTimer({ vote, compact }: { vote: BuyBackVoteView; compact?: boolean
             {
               '--dur': `${total}ms`,
               animationDuration: `${total}ms`,
-              animationDelay: `-${Math.max(0, total - left)}ms`,
+              animationDelay: `-${elapsed}ms`,
             } as React.CSSProperties
           }
         />
@@ -121,9 +122,15 @@ export function VoteModal({ room }: { room: RoomView }) {
   );
 }
 
+/** Names for vote outcome lines, with the viewer called "you" ("Rejected by you"). */
+function voteNameOf(room: RoomView): (id: string) => string {
+  const base = nameResolver(room);
+  return (id) => (id === room.me.playerId ? 'you' : base(id));
+}
+
 /** Small card on the table for everyone who isn't being asked right now. */
 export function VoteProgressCard({ vote, room }: { vote: BuyBackVoteView; room: RoomView }) {
-  const nameOf = nameResolver(room);
+  const nameOf = voteNameOf(room);
   const t = tallyVote(vote);
   const pending = vote.status === 'pending';
   const tone = pending ? 'pending' : vote.status === 'approved' ? 'approved' : 'rejected';
@@ -150,19 +157,21 @@ export function VoteProgressCard({ vote, room }: { vote: BuyBackVoteView; room: 
 export function MyBuyBackStatus({ room }: { room: RoomView }) {
   const vote = [...room.buyBackVotes].reverse().find((v) => v.requesterId === room.me.playerId);
   if (!vote) return null;
-  const nameOf = nameResolver(room);
+  const nameOf = voteNameOf(room);
   const pending = vote.status === 'pending';
   const t = tallyVote(vote);
   return (
-    <div className={`my-vote tone-${pending ? 'pending' : vote.status}`} data-testid="my-buyback">
+    <div className={`my-vote tone-${pending ? 'pending' : vote.status}`} data-testid="my-buyback" role="status">
       <div className="my-vote-head">
-        <b>
-          {pending
-            ? `Asking to buy back in for ${formatChips(vote.amount)}…`
-            : vote.status === 'approved'
-              ? 'Approved by everyone — you’re back in!'
-              : voteOutcomeText(vote, nameOf)}
-        </b>
+        <span>
+          {pending ? (
+            <>
+              <b>Waiting for votes</b> · {t.yes}/{t.total} agreed
+            </>
+          ) : (
+            <b>{vote.status === 'approved' ? 'Approved by everyone — you’re back in!' : voteOutcomeText(vote, nameOf)}</b>
+          )}
+        </span>
         {pending ? (
           <button type="button" className="btn btn-white btn-xs" data-testid="buyback-cancel" onClick={() => void actions.cancelBuyBack(vote.id)}>
             Cancel
@@ -171,11 +180,8 @@ export function MyBuyBackStatus({ room }: { room: RoomView }) {
       </div>
       {pending ? (
         <>
-          <VoteTimer vote={vote} />
+          <VoteTimer vote={vote} compact />
           <VoterList vote={vote} room={room} compact />
-          <span className="my-vote-tally">
-            {t.yes}/{t.total} agreed
-          </span>
         </>
       ) : null}
     </div>

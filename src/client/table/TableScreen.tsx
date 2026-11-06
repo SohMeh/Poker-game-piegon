@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react';
 import type { RoomView } from '../../shared/types';
 import { isGameOver, myPlayer } from '../lib/gameState';
 import { useStore } from '../state/store';
@@ -7,12 +6,12 @@ import { VoteModal } from './BuyBackVote';
 import { Confetti } from './Confetti';
 import { FloatingCards } from './FloatingCards';
 import { HeroStrip } from './HeroStrip';
+import { InviteSheet } from '../sheets/InviteSheet';
+import { MenuSheet } from '../sheets/MenuSheet';
 import { TableView } from './TableView';
 import { TopBar } from './TopBar';
 import { useGameEffects } from './useGameEffects';
 
-const InviteSheet = lazy(() => import('../sheets/InviteSheet'));
-const MenuSheet = lazy(() => import('../sheets/MenuSheet'));
 
 export function TableScreen({ room }: { room: RoomView }) {
   useGameEffects(room);
@@ -20,9 +19,22 @@ export function TableScreen({ room }: { room: RoomView }) {
   const me = myPlayer(room);
   const heroMode = !!me && me.seat !== null;
   const gameOver = isGameOver(room);
+  const hand = room.hand;
 
   return (
-    <div className={`table-screen ${heroMode ? 'has-hero' : 'no-hero'} ${ui.raiseOpen ? 'is-raising' : ''}`} data-testid="table-screen">
+    <div
+      className={`table-screen ${heroMode ? 'has-hero' : 'no-hero'} ${ui.raiseOpen ? 'is-raising' : ''}`}
+      data-testid="table-screen"
+      // Machine-readable state for end-to-end tests (and debugging); purely informational.
+      data-status={room.status}
+      data-hand={hand?.handNumber ?? ''}
+      data-street={hand?.street ?? ''}
+      data-phase={hand?.phase ?? ''}
+      data-my-turn={room.me.legal ? 'true' : 'false'}
+      data-turn-key={hand ? `${hand.handNumber}:${hand.street}:${hand.phase}:${hand.toActPlayerId ?? '-'}` : ''}
+      data-seat={me?.seat ?? ''}
+      data-game-over={gameOver ? 'true' : 'false'}
+    >
       <TopBar room={room} />
       <main className="table-area">
         <TableView room={room} heroMode={heroMode} />
@@ -34,10 +46,8 @@ export function TableScreen({ room }: { room: RoomView }) {
       <div className="bottom-area">
         <BottomPanel room={room} />
       </div>
-      <Suspense fallback={null}>
-        {ui.inviteOpen ? <InviteSheet room={room} /> : null}
-        {ui.menuOpen ? <MenuSheet room={room} /> : null}
-      </Suspense>
+      {ui.inviteOpen ? <InviteSheet room={room} /> : null}
+      {ui.menuOpen ? <MenuSheet room={room} /> : null}
     </div>
   );
 }

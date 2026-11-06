@@ -38,13 +38,15 @@ function SeatImpl({ player: p, hand, width, x, y, toCenter, bubbleBelow, won, hi
   const live = !!hand && hand.phase !== 'complete';
   const folded = p.inHand && p.folded;
   const tag = seatTag(p, hand, gameStarted);
-  const bubble = hand && hand.phase !== 'complete' ? lastActionLabel(p.lastAction) : null;
+  const bubble =
+    hand && hand.phase !== 'complete' && !(p.inHand && p.folded) && !p.shownCards?.length ? lastActionLabel(p.lastAction) : null;
   const isSB = !!hand && hand.smallBlindSeat === p.seat;
   const isBB = !!hand && hand.bigBlindSeat === p.seat;
   const showdown = !!hand && hand.phase === 'complete';
   const cls = [
     'seat',
     folded ? 'is-folded' : '',
+    p.shownCards?.length ? 'has-shown' : '',
     acting ? 'is-acting' : '',
     won > 0 ? 'is-winner' : '',
     p.sittingOut || !p.connected ? 'is-away' : '',
@@ -70,7 +72,7 @@ function SeatImpl({ player: p, hand, width, x, y, toCenter, bubbleBelow, won, hi
           top: y,
           width,
           '--sw': `${width}px`,
-          '--av': `${avatarSize}px`,
+          '--avs': `${avatarSize}px`,
           '--to-x': `${toCenter.x}px`,
           '--to-y': `${toCenter.y}px`,
         } as React.CSSProperties
@@ -150,7 +152,7 @@ export function EmptySeat({
   return (
     <div
       className="seat seat-empty"
-      style={{ left: x, top: y, width, '--sw': `${width}px`, '--av': `${size}px` } as React.CSSProperties}
+      style={{ left: x, top: y, width, '--sw': `${width}px`, '--avs': `${size}px` } as React.CSSProperties}
       data-testid={`seat-${seat}`}
     >
       {canSit && !reserved ? (

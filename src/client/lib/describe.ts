@@ -193,7 +193,7 @@ export function winningCards(winners: HandWinner[] | null | undefined): Set<Card
 }
 
 export function statusLabel(status: RoomStatus, gameOver: boolean): string {
-  if (gameOver) return 'Game over';
+  if (gameOver) return 'Ended';
   if (status === 'lobby') return 'Lobby';
   if (status === 'paused') return 'Paused';
   return 'Live';

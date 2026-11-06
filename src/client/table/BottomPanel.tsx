@@ -9,6 +9,7 @@ import {
   eligibleCount,
   firstFreeSeat,
   isGameOver,
+  myPendingRequest,
   myPlayer,
   playerById,
   type BottomMode,
@@ -50,14 +51,21 @@ function useBusy(): [boolean, (p: Promise<unknown>) => void] {
   ];
 }
 
-function BuyBackButton({ room }: { room: RoomView }) {
+function BuyBackButton({ room, compact }: { room: RoomView; compact?: boolean }) {
   const now = useServerNow(500);
   const [busy, run] = useBusy();
   const avail = buyBackAvailability(room, now);
   const voters = buyBackVoterCount(room);
   const amount = room.settings.buyIn;
   let sub: string;
-  if (avail.allowed) sub = voters === 0 ? 'No one else to ask' : `${voters} player${voters === 1 ? '' : 's'} must agree`;
+  if (avail.allowed) {
+    sub =
+      voters === 0
+        ? `${formatChips(amount)} chips`
+        : compact
+          ? `${voters} must agree`
+          : `${voters} player${voters === 1 ? '' : 's'} must agree · ${formatChips(amount)}`;
+  }
   else if (avail.cooldownUntil) sub = `You can ask again in ${secondsLeft(avail.cooldownUntil, 0, now)}s`;
   else sub = avail.reason;
   return (
@@ -68,7 +76,7 @@ function BuyBackButton({ room }: { room: RoomView }) {
       disabled={!avail.allowed || busy}
       onClick={() => run(actions.requestBuyBack())}
     >
-      Ask to buy back in · {formatChips(amount)}
+      {compact ? 'Buy back in' : 'Ask to buy back in'}
       <span className="btn-sub">{sub}</span>
     </button>
   );
@@ -101,15 +109,15 @@ export function BottomPanel({ room }: { room: RoomView }) {
           </button>
         </Panel>
       ) : (
-        <Panel title="Table is full — watching" sub="You can sit when a seat opens up">
+        <Panel title={<span data-testid="table-full">Table is full — watching</span>} sub="You can sit when a seat opens up">
           <InviteButton />
         </Panel>
       );
     }
     case 'pending':
       return (
-        <Panel title="Waiting for host approval…" sub={`${host?.name ?? 'The host'} will let you in`} tone="soft">
-          <button type="button" className="btn btn-white btn-sm" disabled={busy} onClick={() => run(actions.standUp())}>
+        <Panel title={<span data-testid="pending-approval">Waiting for host approval…</span>} sub={`${host?.name ?? 'The host'} will let you in`} tone="soft">
+          <button type="button" className="btn btn-white btn-sm" data-testid="cancel-seat-request" disabled={busy} onClick={() => run(actions.standUp())}>
             Cancel
           </button>
         </Panel>
@@ -120,41 +128,43 @@ export function BottomPanel({ room }: { room: RoomView }) {
       return (
         <div className="panel panel-gameover">
           <div className="panel-text">
-            <p className="panel-title">{iWon ? 'You won the game! 🏆' : winner ? `${winner.name} won the game` : 'Game over'}</p>
-            <p className="panel-sub">{isHost ? 'Start a rematch — everyone gets a fresh buy-in' : `Waiting for ${host?.name ?? 'the host'}…`}</p>
+            <p className="panel-title">{iWon ? 'You won the game! 🏆' : winner ? `${winner.name} won the game 🏆` : 'Game over'}</p>
+            <p className="panel-sub">{isHost ? 'Rematch gives everyone a fresh buy-in' : `Waiting for ${host?.name ?? 'the host'} to start a rematch`}</p>
           </div>
+          <MyBuyBackStatus room={room} />
           <div className="panel-actions">
-            {me?.busted || (me && me.stack === 0) ? <BuyBackButton room={room} /> : null}
+            {(me?.busted || (me && me.stack === 0)) && !myPendingRequest(room) ? <BuyBackButton room={room} compact={isHost} /> : null}
             {isHost ? (
               <button type="button" className="btn btn-purple" data-testid="rematch" disabled={busy} onClick={() => run(actions.rematch())}>
                 Rematch
               </button>
             ) : null}
           </div>
-          <MyBuyBackStatus room={room} />
         </div>
       );
     }
-    case 'busted':
+    case 'busted': {
+      const pending = myPendingRequest(room);
       return (
         <div className="panel panel-busted">
-          <div className="panel-text">
-            <p className="panel-title">You’re out of chips</p>
-            <p className="panel-sub">
-              {room.settings.allowBuyBack
-                ? 'One buy-in per player — buying back needs everyone’s OK'
-                : 'Buy-backs are off for this game'}
-            </p>
-          </div>
-          <MyBuyBackStatus room={room} />
-          <div className="panel-actions">
-            <BuyBackButton room={room} />
-            <button type="button" className="btn btn-white btn-sm" data-testid="stand-up" disabled={busy} onClick={() => run(actions.standUp())}>
+          <div className="panel-row">
+            <div className="panel-text">
+              <p className="panel-title">You’re out of chips</p>
+              {!pending ? (
+                <p className="panel-sub">
+                  {room.settings.allowBuyBack ? 'One buy-in each — buying back needs everyone’s OK' : 'Buy-backs are off for this game'}
+                </p>
+              ) : null}
+            </div>
+            <button type="button" className="btn btn-white btn-xs" data-testid="stand-up" disabled={busy} onClick={() => run(actions.standUp())}>
               Stand up
             </button>
           </div>
+          <MyBuyBackStatus room={room} />
+          {!pending ? <BuyBackButton room={room} /> : null}
         </div>
       );
+    }
     case 'lobby': {
       const ready = eligibleCount(room);
       return isHost ? (
