@@ -91,16 +91,8 @@ export interface EngineEvent {
   potIndex?: number;
 }
 
-export interface HandRank {
-  /** Larger is better; equal scores tie. */
-  score: number;
-  /** 0 high card .. 8 straight flush. */
-  category: number;
-  /** e.g. "Flush, Ace high", "Straight, Five high", "Royal Flush". */
-  name: string;
-  /** The five cards making the hand, ordered by importance (e.g. pair cards first, then kickers). */
-  best5: Card[];
-}
+/** Hand ranking lives in the shared (browser-safe) evaluator. */
+export type { HandRank } from '../../shared/evaluator';
 
 export interface HandEngine {
   readonly handNumber: number;
