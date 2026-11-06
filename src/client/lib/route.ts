@@ -36,6 +36,30 @@ export function roomPath(roomId: string): string {
   return `/g/${roomId.toUpperCase()}`;
 }
 
+/** Query flag the iMessage extension loads the page with (`?embed=imessage`); sticky for the page session. */
+export const EMBED_PARAM = 'embed';
+export const EMBED_IMESSAGE = 'imessage';
+
+export function hasEmbedFlag(search: string): boolean {
+  try {
+    return new URLSearchParams(search).get(EMBED_PARAM) === EMBED_IMESSAGE;
+  } catch {
+    return false;
+  }
+}
+
+/** "/g/ABC123" -> "/g/ABC123?embed=imessage" (keeps any other query and the hash). */
+export function withEmbedFlag(path: string): string {
+  const hashAt = path.indexOf('#');
+  const hash = hashAt >= 0 ? path.slice(hashAt) : '';
+  const rest = hashAt >= 0 ? path.slice(0, hashAt) : path;
+  const q = rest.indexOf('?');
+  const pathname = q >= 0 ? rest.slice(0, q) : rest;
+  const params = new URLSearchParams(q >= 0 ? rest.slice(q + 1) : '');
+  params.set(EMBED_PARAM, EMBED_IMESSAGE);
+  return `${pathname}?${params.toString()}${hash}`;
+}
+
 /** Accepts a bare code or a pasted link (".../g/ABC123") and returns a normalised code. */
 export function extractRoomCode(input: string): string {
   const m = /\/g\/([A-Za-z0-9]+)/.exec(input);

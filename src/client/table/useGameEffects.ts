@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { RoomView } from '../../shared/types';
 import { winningsByPlayer } from '../lib/describe';
 import { amountToCall, myPlayer } from '../lib/gameState';
-import { vibrate } from '../lib/haptics';
+import { haptic } from '../lib/haptics';
 import { preActionApplies, preActionStale, resolvePreAction } from '../lib/preActions';
 import { sfx } from '../lib/sound';
 import { flashTitle, setBaseTitle, stopTitleFlash } from '../lib/titleFlash';
@@ -47,7 +47,7 @@ export function useGameEffects(room: RoomView): void {
         setTimeout(() => void actions.act(a), 250);
       } else {
         sfx.turn();
-        vibrate([40, 60, 40]);
+        haptic('turn');
         flashTitle('Your turn!');
       }
     } else if (pre) {
@@ -76,7 +76,7 @@ export function useGameEffects(room: RoomView): void {
         const mine = winningsByPlayer(hand!.winners).get(room.me.playerId) ?? 0;
         if (mine > 0) {
           sfx.win(true);
-          vibrate([30, 40, 90]);
+          haptic('win');
         } else sfx.chip();
       }
     }
@@ -85,7 +85,7 @@ export function useGameEffects(room: RoomView): void {
     const newForMe = room.me.votesAwaitingMe.filter((id) => !(prev?.me.votesAwaitingMe ?? []).includes(id));
     if (newForMe.length && prev) {
       sfx.alert();
-      vibrate([60, 40, 60]);
+      haptic('vote');
       flashTitle('Buy-back vote!');
     }
     if (newForMe.length) {

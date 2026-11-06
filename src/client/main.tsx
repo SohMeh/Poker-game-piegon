@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { installAudioUnlock } from './lib/sound';
+import { isEmbedded } from './native/bridge';
+import { initEmbed } from './native/embed';
 import { initNetwork, initRouter } from './net/room';
 // Bundled rounded UI font: every device without Apple's rounded system font gets the same
 // glyph widths, so the table layout (which reserves space for pot chips, seat plates and
@@ -24,6 +26,8 @@ async function boot() {
     initNetwork();
     initRouter();
   }
+  // inside the iMessage extension: tell native the page is up, and follow the route from here on
+  if (isEmbedded()) initEmbed();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

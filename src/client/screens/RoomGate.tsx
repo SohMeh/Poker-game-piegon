@@ -6,8 +6,8 @@ import type { RoomSummary } from '../../shared/types';
 import { BirdMascot } from '../components/Logo';
 import { Field } from '../components/controls';
 import { validateName } from '../lib/settingsForm';
+import { preferredName } from '../native/embed';
 import { joinWithName, navigate, retryJoin } from '../net/room';
-import { loadName } from '../net/session';
 import { useStore } from '../state/store';
 
 function goHome(e?: { preventDefault: () => void }) {
@@ -23,7 +23,7 @@ export function JoinScreen({ roomId }: { roomId: string }) {
   const summary = useStore((s) => s.summary);
   const phase = useStore((s) => s.phase);
   const phaseError = useStore((s) => s.phaseError);
-  const [name, setName] = useState(() => loadName());
+  const [name, setName] = useState(() => preferredName());
   const [touched, setTouched] = useState(false);
   const nameError = validateName(name);
   const busy = phase === 'joining';

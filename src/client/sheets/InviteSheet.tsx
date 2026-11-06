@@ -6,6 +6,8 @@ import { BirdMascot } from '../components/Logo';
 import { Sheet } from '../components/Sheet';
 import { seatsTaken } from '../lib/gameState';
 import { roomPath } from '../lib/route';
+import { isEmbedded } from '../native/bridge';
+import { sendInvite } from '../native/embed';
 import { setUI, toast } from '../state/store';
 
 export const INVITE_TEXT = 'Pull up a chair — No-Limit Hold’em, tap to join';
@@ -57,6 +59,17 @@ export function InviteSheet({ room }: { room: RoomView }) {
 
   const sms = `sms:?&body=${encodeURIComponent(`${INVITE_TEXT} ${url}`)}`;
 
+  // Inside Messages: put the game bubble in this conversation's compose field (native collapses the
+  // extension so the player taps Send). Falls back to the share sheet if native is not listening.
+  const embedded = isEmbedded();
+  const sendToChat = async () => {
+    if (sendInvite(room)) {
+      close();
+      return;
+    }
+    await share();
+  };
+
   return (
     <Sheet title="Invite friends" onClose={close}>
       <div className="sheet-body invite">
@@ -82,12 +95,20 @@ export function InviteSheet({ room }: { room: RoomView }) {
             <IconCopy width={20} height={20} />
           </button>
         </div>
-        <button type="button" className="btn btn-green btn-lg btn-block" data-testid="send-invite" onClick={() => void share()}>
-          <IconShare width={22} height={22} /> Send invite
-        </button>
-        <a className="btn btn-white btn-block" href={sms}>
-          <IconMessage width={22} height={22} /> Open Messages
-        </a>
+        {embedded ? (
+          <button type="button" className="btn btn-green btn-lg btn-block" data-testid="send-to-chat" onClick={() => void sendToChat()}>
+            <IconMessage width={22} height={22} /> Send to chat
+          </button>
+        ) : (
+          <>
+            <button type="button" className="btn btn-green btn-lg btn-block" data-testid="send-invite" onClick={() => void share()}>
+              <IconShare width={22} height={22} /> Send invite
+            </button>
+            <a className="btn btn-white btn-block" href={sms}>
+              <IconMessage width={22} height={22} /> Open Messages
+            </a>
+          </>
+        )}
         <p className="invite-rules">Everyone gets one buy-in. Buy-backs need a unanimous yes.</p>
       </div>
     </Sheet>

@@ -1,0 +1,25 @@
+// Build settings shared by the Flock Poker app and its Messages extension.
+//
+// NOTE: two slashes start a comment in .xcconfig files, so a URL with a scheme cannot be written
+// here. Only the host goes here; Info.plist builds the server URL as https://$(FLOCK_SERVER_HOST).
+
+// Bundle identifier of the (iMessage-only) app. The extension is $(FLOCK_BUNDLE_PREFIX).messages.
+// If Xcode says this identifier is not available, change it to something unique to you,
+// e.g. com.yourname.flockpoker
+FLOCK_BUNDLE_PREFIX = com.sohmeh.flockpoker
+
+// The Flock Poker server the table is loaded from (host, or host:port). Must serve HTTPS.
+FLOCK_SERVER_HOST = flock-poker.onrender.com
+
+// Signing: leave the team empty here and pick "<your name> (Personal Team)" in Xcode under
+// Signing & Capabilities for BOTH targets, or put your 10-character team ID here so it survives
+// regenerating the project with xcodegen.
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+SWIFT_VERSION = 5.0
+SWIFT_STRICT_CONCURRENCY = minimal
+IPHONEOS_DEPLOYMENT_TARGET = 16.0
+TARGETED_DEVICE_FAMILY = 1,2
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1

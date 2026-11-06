@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "nativeInfo": { "platform": "imessage", "version": 1, "name": "Sohum", "presentation": "expanded" },
+  "webToNative": [
+    { "type": "ready", "version": 1, "route": "home" },
+    { "type": "ready", "version": 1, "route": "table" },
+    { "type": "rememberName", "name": "Sohum" },
+    {
+      "type": "bubble",
+      "kind": "invite",
+      "mode": "insert",
+      "dedupeKey": "invite:ABC123:1",
+      "plainLink": true,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Sohum's poker game",
+        "subtitle": "10/20 · buy-in 2,000 · 1/9 seated — tap to join",
+        "summary": "Sohum started a poker game",
+        "trailing": "Lobby",
+        "status": "lobby",
+        "hostName": "Sohum",
+        "seated": 1,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 0
+      }
+    },
+    {
+      "type": "bubble",
+      "kind": "gameStarted",
+      "mode": "send",
+      "dedupeKey": "gameStarted:ABC123:1",
+      "plainLink": false,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Cards are in the air!",
+        "subtitle": "4 players · 10/20 — tap to play",
+        "summary": "Game started",
+        "trailing": "Hand #1",
+        "status": "running",
+        "hostName": "Sohum",
+        "seated": 4,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 1
+      }
+    },
+    {
+      "type": "bubble",
+      "kind": "buyBackRequested",
+      "mode": "send",
+      "dedupeKey": "buyBackRequested:ABC123:v_7f3a",
+      "plainLink": false,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Bob wants to buy back in",
+        "subtitle": "Everyone must approve within 30s — tap to vote",
+        "summary": "Bob asked to buy back in",
+        "trailing": "Vote",
+        "status": "running",
+        "hostName": "Sohum",
+        "seated": 4,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 14
+      }
+    },
+    {
+      "type": "bubble",
+      "kind": "yourTurn",
+      "mode": "send",
+      "dedupeKey": "yourTurn:ABC123:15:p_carol",
+      "plainLink": false,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Carol, it's your turn",
+        "subtitle": "Pot 340 · flop — tap to act",
+        "summary": "Waiting on Carol",
+        "trailing": "Hand #15",
+        "status": "running",
+        "hostName": "Sohum",
+        "seated": 4,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 15
+      }
+    },
+    {
+      "type": "bubble",
+      "kind": "gameOver",
+      "mode": "send",
+      "dedupeKey": "gameOver:ABC123:1:p_alice",
+      "plainLink": false,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Alice won the game!",
+        "subtitle": "Holding all 8,000 chips — tap for the ledger",
+        "summary": "Alice won the game",
+        "trailing": "Final",
+        "status": "running",
+        "hostName": "Sohum",
+        "seated": 4,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 41
+      }
+    },
+    {
+      "type": "bubble",
+      "kind": "rematch",
+      "mode": "send",
+      "dedupeKey": "rematch:ABC123:2",
+      "plainLink": false,
+      "bubble": {
+        "roomId": "ABC123",
+        "url": "https://flock-poker.onrender.com/g/ABC123",
+        "title": "Rematch!",
+        "subtitle": "Fresh buy-ins of 2,000 — tap to sit down",
+        "summary": "New game started",
+        "trailing": "Lobby",
+        "status": "lobby",
+        "hostName": "Sohum",
+        "seated": 4,
+        "maxPlayers": 9,
+        "smallBlind": 10,
+        "bigBlind": 20,
+        "buyIn": 2000,
+        "handNumber": 0
+      }
+    },
+    { "type": "haptic", "style": "success" },
+    { "type": "presentation", "style": "compact" }
+  ],
+  "nativeToWeb": [
+    { "type": "presentation", "style": "expanded" },
+    { "type": "bubbleResult", "dedupeKey": "gameStarted:ABC123:1", "ok": true, "sent": true, "error": null },
+    { "type": "bubbleResult", "dedupeKey": "invite:ABC123:1", "ok": false, "sent": false, "error": "No active conversation" }
+  ]
+}
