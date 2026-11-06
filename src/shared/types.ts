@@ -237,3 +237,16 @@ export interface RoomView {
   /** Personal view (always present for a joined socket). */
   me: MeView;
 }
+
+/** GET /api/rooms/:roomId — public info shown on the join screen before joining. */
+export interface RoomSummary {
+  roomId: string;
+  hostName: string;
+  seated: number;
+  maxPlayers: number;
+  smallBlind: number;
+  bigBlind: number;
+  buyIn: number;
+  status: RoomStatus;
+  started: boolean;
+}
