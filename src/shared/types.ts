@@ -228,6 +228,12 @@ export interface RoomView {
   /** Pending votes plus votes resolved in the last few seconds. */
   buyBackVotes: BuyBackVoteView[];
   ledger: LedgerRow[];
+  /**
+   * Set between hands when the game has been started and fewer than two seated players
+   * have chips left: the one player holding chips (null if nobody). Busted players may still
+   * request a buy-back (which needs everyone's approval), or the host can start a rematch.
+   */
+  gameOverWinnerId: string | null;
   /** Personal view (always present for a joined socket). */
   me: MeView;
 }

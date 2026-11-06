@@ -58,6 +58,12 @@ export interface ClientToServerEvents {
   'host:approveSeat': (p: { playerId: string; approve: boolean }, ack: Ack) => void;
   'host:kick': (p: { playerId: string }, ack: Ack) => void;
   'host:transfer': (p: { playerId: string }, ack: Ack) => void;
+  /**
+   * Rematch: start a brand-new game with the same seated players. Everyone seated gets a
+   * fresh single buy-in, the ledger and hand counter reset, status returns to 'lobby'.
+   * Only allowed between hands.
+   */
+  'host:rematch': (p: Empty, ack: Ack) => void;
 }
 
 export interface NoticePayload {
